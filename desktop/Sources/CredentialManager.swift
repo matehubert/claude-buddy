@@ -9,7 +9,7 @@ class CredentialManager {
     private let credFilePath: String
     private let keychainService = "Claude Code-credentials"
     private let refreshURL = "https://platform.claude.com/v1/oauth/token"
-    private let clientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+    private let clientId: String?
     private let scopes = "user:profile user:inference user:sessions:claude_code user:mcp_servers"
     private let refreshBufferSeconds: TimeInterval = 5 * 60
 
@@ -19,6 +19,52 @@ class CredentialManager {
     private init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         credFilePath = "\(home)/.claude/.credentials.json"
+        clientId = CredentialManager.resolveClientId()
+    }
+
+    /// Resolve OAuth client ID from Claude Code binary (never hardcoded).
+    private static func resolveClientId() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+        // 1. Check cached config
+        let configPath = "\(home)/.claude/buddy-config.json"
+        if let data = FileManager.default.contents(atPath: configPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let cachedId = json["clientId"] as? String {
+            return cachedId
+        }
+
+        // 2. Extract from Claude Code binary
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", """
+            CLAUDE_PATH=$(readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null)
+            [ -n "$CLAUDE_PATH" ] && strings "$CLAUDE_PATH" | grep -o 'https://platform\\.claude\\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1
+            """]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                // Parse CLIENT_ID:"uuid" from output
+                if let range = output.range(of: #"CLIENT_ID:"([0-9a-f-]+)""#, options: .regularExpression),
+                   let idRange = output.range(of: #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#, options: .regularExpression, range: range) {
+                    let clientId = String(output[idRange])
+                    // Cache for future use
+                    let cacheJSON = ["clientId": clientId]
+                    if let cacheData = try? JSONSerialization.data(withJSONObject: cacheJSON, options: .prettyPrinted) {
+                        try? cacheData.write(to: URL(fileURLWithPath: configPath))
+                    }
+                    return clientId
+                }
+            }
+        } catch {}
+
+        return nil
     }
 
     struct OAuthData {
@@ -135,7 +181,8 @@ class CredentialManager {
     // MARK: - Refresh Token
 
     private func refreshToken(_ creds: OAuthData) async -> String? {
-        guard let refreshToken = creds.refreshToken else { return nil }
+        guard let refreshToken = creds.refreshToken,
+              let clientId = clientId else { return nil }
 
         let body: [String: String] = [
             "grant_type": "refresh_token",

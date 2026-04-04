@@ -14,6 +14,16 @@ curl -fsSL "$REPO/SKILL.md" -o ~/.claude/skills/buddy/SKILL.md
 curl -fsSL "$REPO/buddy-hook.mjs" -o ~/.claude/skills/buddy/buddy-hook.mjs
 chmod +x ~/.claude/skills/buddy/buddy-hook.mjs
 
+# Extract and cache OAuth client ID from Claude Code binary
+CLAUDE_BIN=$(readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null)
+if [ -n "$CLAUDE_BIN" ]; then
+  EXTRACTED_ID=$(strings "$CLAUDE_BIN" 2>/dev/null | grep -o 'https://platform\.claude\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1 | grep -o '[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}')
+  if [ -n "$EXTRACTED_ID" ]; then
+    echo "{\"clientId\":\"$EXTRACTED_ID\"}" > ~/.claude/buddy-config.json
+    echo "OAuth client ID cached."
+  fi
+fi
+
 # Register Claude Code hooks for buddy awareness
 SETTINGS="$HOME/.claude/settings.json"
 HOOK_CMD="node $HOME/.claude/skills/buddy/buddy-hook.mjs"

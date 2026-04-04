@@ -450,8 +450,40 @@ function updateSoul(updates) {
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const REFRESH_URL = 'https://platform.claude.com/v1/oauth/token';
-const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const SCOPES = 'user:profile user:inference user:sessions:claude_code user:mcp_servers';
+
+/** Resolve OAuth client ID from Claude Code binary (never hardcoded). */
+function resolveClientId() {
+  // 1. Check cached config
+  const configPath = join(homedir(), '.claude', 'buddy-config.json');
+  try {
+    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
+    if (cfg.clientId) return cfg.clientId;
+  } catch {}
+
+  // 2. Extract from Claude Code binary
+  try {
+    const claudePath = execSync('readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null', {
+      encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (claudePath) {
+      const output = execSync(
+        `strings "${claudePath}" | grep -o 'https://platform\\.claude\\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1`,
+        { encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim();
+      const match = output.match(/CLIENT_ID:"([0-9a-f-]+)"/);
+      if (match) {
+        // Cache for future use
+        try { writeFileSync(configPath, JSON.stringify({ clientId: match[1] }, null, 2)); } catch {}
+        return match[1];
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+const CLIENT_ID = resolveClientId();
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const REACT_HISTORY_PATH = join(homedir(), '.claude', 'buddy-history.json');
 
