@@ -298,6 +298,15 @@ enum BuddyL10n {
     static var menuMuteReactions: String { current == "hu" ? "Reakciók némítása" : "Mute Reactions" }
     static var menuUnmuteReactions: String { current == "hu" ? "Reakciók engedélyezése" : "Unmute Reactions" }
     static var menuResetDefault: String { current == "hu" ? "Alapértelmezettre" : "Reset to Default" }
+    static var menuCenterBuddy: String { current == "hu" ? "Középre" : "Center Buddy" }
+    static var menuReroll: String { current == "hu" ? "Új tojás kikeltetése..." : "Hatch new egg..." }
+    static var menuRerollConfirm: String {
+        current == "hu"
+            ? "Biztos? Az aktuális buddyd elköszön, és egy teljesen új tojást kapsz nulláról."
+            : "Are you sure? Your current buddy will leave, and you'll hatch a brand new egg from scratch."
+    }
+    static var menuRerollConfirmButton: String { current == "hu" ? "Új tojás!" : "New egg!" }
+    static var menuCancel: String { current == "hu" ? "Mégse" : "Cancel" }
     static var menuQuit: String { current == "hu" ? "Kilépés" : "Quit" }
 
     static func menuGameInProgress(_ score: Int) -> String {

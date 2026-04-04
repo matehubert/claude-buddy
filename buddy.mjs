@@ -633,7 +633,15 @@ async function main() {
   const command = args[0] || 'status';
   const transcript = args[1] || '';
   const userId = getUserId();
-  const bones = generate(userId);
+
+  // If soul has a rerollSeed, use it instead of userId for generation
+  const existingSoul = readSoul();
+  const genSeed = existingSoul?.rerollSeed || userId;
+  const bones = generate(genSeed);
+
+  // Apply custom overrides from soul
+  if (existingSoul?.customEye) bones.eye = existingSoul.customEye;
+  if (existingSoul?.customHat) bones.hat = existingSoul.customHat;
 
   switch (command) {
     case 'hatch': {
@@ -942,6 +950,50 @@ async function main() {
           updateSoul({ customHat: hat });
           console.log(JSON.stringify({ action: 'hat_set', hat }));
         }
+      }
+      break;
+    }
+
+    case 'reroll': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        // Generate a new random seed based on current time
+        const newSeed = userId + '-reroll-' + Date.now();
+        const newBones = generate(newSeed);
+
+        // Create fresh soul — new egg, reset everything
+        const newSoul = {
+          name: newBones.name,
+          personality: PERSONALITIES[newBones.species],
+          hatchDate: new Date().toISOString().split('T')[0],
+          muted: soul.muted,
+          hidden: soul.hidden,
+          language: soul.language,
+          rerollSeed: newSeed,
+          // Reset all progress
+          mood: 'content',
+          energy: 80,
+          streak: 0,
+          achievements: [],
+          feedCount: 0,
+          petCount: 0,
+          playCount: 0,
+          lastInteraction: Date.now() / 1000
+        };
+        writeSoul(newSoul);
+        const rendered = renderHatch(newBones, newSoul);
+        const reaction = await callBuddyReact(newBones, newSoul, 'hatch', '');
+        console.log(JSON.stringify({
+          action: 'rerolled',
+          bones: newBones,
+          soul: newSoul,
+          rendered,
+          reaction,
+          previousSpecies: bones.species,
+          newSpecies: newBones.species
+        }));
       }
       break;
     }

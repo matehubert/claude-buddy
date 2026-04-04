@@ -226,6 +226,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showHide.target = self
         menu.addItem(showHide)
 
+        let center = NSMenuItem(title: BuddyL10n.menuCenterBuddy, action: #selector(centerBuddy), keyEquivalent: "")
+        center.target = self
+        menu.addItem(center)
+
         let pet = NSMenuItem(title: BuddyL10n.menuPet, action: #selector(petBuddy), keyEquivalent: "p")
         pet.target = self
         menu.addItem(pet)
@@ -367,6 +371,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(customizeItem)
 
         menu.addItem(.separator())
+
+        // Reroll
+        let rerollItem = NSMenuItem(title: BuddyL10n.menuReroll, action: #selector(rerollBuddy), keyEquivalent: "")
+        rerollItem.target = self
+        menu.addItem(rerollItem)
 
         // Photo (3D only)
         if use3D {
@@ -699,6 +708,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Reroll
+
+    @objc private func rerollBuddy() {
+        let alert = NSAlert()
+        alert.messageText = BuddyL10n.menuReroll
+        alert.informativeText = BuddyL10n.menuRerollConfirm
+        alert.addButton(withTitle: BuddyL10n.menuRerollConfirmButton)
+        alert.addButton(withTitle: BuddyL10n.menuCancel)
+        alert.alertStyle = .warning
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+
+        runBuddyCommand(["reroll"]) { [weak self] in
+            // Reset mood/energy system
+            MoodEnergySystem.shared.loadFromDisk()
+
+            // Reload buddy data (triggers onUpdate → updateBuddyDisplay)
+            BuddyData.shared.reload()
+
+            // Hatch animation
+            self?.renderer.triggerParticleEffect(.confetti)
+            self?.animationController.showReaction("*crack* ...!")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                let name = BuddyData.shared.soul?.name ?? "?"
+                let species = BuddyData.shared.bones?.species ?? "?"
+                self?.renderer.triggerParticleEffect(.confetti)
+                self?.animationController.showReaction("\(name) (\(species))!")
+            }
+        }
+    }
+
     // MARK: - Actions
 
     @objc private func toggleBuddyVisibility() {
@@ -707,6 +749,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             buddyPanel.orderFront(nil)
         }
+    }
+
+    @objc private func centerBuddy() {
+        guard let screen = NSScreen.main else { return }
+        let sf = screen.visibleFrame
+        let panelSize = buddyPanel.frame.size
+        let centerX = sf.midX - panelSize.width / 2
+        let centerY = sf.midY - panelSize.height / 2
+        buddyPanel.animateMove(to: NSPoint(x: centerX, y: centerY), duration: 0.3)
+        buddyPanel.orderFront(nil)
     }
 
     @objc func petBuddy() {
