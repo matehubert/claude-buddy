@@ -52,9 +52,19 @@ class SpeechBubbleView: NSView {
         path.stroke()
     }
 
+    private var homeFrame: NSRect = .zero
+
     func show(text: String, duration: TimeInterval = 5.0) {
         hideTimer?.invalidate()
         countdownTimer?.invalidate()
+
+        // Remember the correct frame on first show
+        if homeFrame == .zero {
+            homeFrame = frame
+        }
+
+        // Always reset to home frame first
+        frame = homeFrame
 
         textLabel.stringValue = text
         needsDisplay = true
@@ -63,20 +73,6 @@ class SpeechBubbleView: NSView {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.3
             self.animator().alphaValue = 1.0
-        }
-
-        // Scale-up feel
-        let originalFrame = frame
-        self.frame = NSRect(
-            x: originalFrame.midX - originalFrame.width * 0.45,
-            y: originalFrame.origin.y + 4,
-            width: originalFrame.width * 0.9,
-            height: originalFrame.height * 0.9
-        )
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.3
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            self.animator().frame = originalFrame
         }
 
         // Auto-hide after duration

@@ -27,6 +27,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize language from soul or system locale
         BuddyL10n.setup(soul: BuddyData.shared.soul)
 
+        // Load render mode preference (default: 2D ASCII)
+        use3D = UserDefaults.standard.bool(forKey: "buddyUse3D")
+
         setupMenuBar()
         setupBuddyPanel()
         setupAnimations()
@@ -354,15 +357,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         langItem.submenu = langMenu
         customizeMenu.addItem(langItem)
 
+        // Render mode toggle
+        let modeTitle = use3D ? "2D Mode (ASCII)" : "3D Mode (SceneKit)"
+        let modeItem = NSMenuItem(title: modeTitle, action: #selector(toggleRenderMode), keyEquivalent: "")
+        modeItem.target = self
+        customizeMenu.addItem(modeItem)
+
         customizeItem.submenu = customizeMenu
         menu.addItem(customizeItem)
 
         menu.addItem(.separator())
 
-        // Photo
-        let photo = NSMenuItem(title: BuddyL10n.menuTakePhoto, action: #selector(takePhoto), keyEquivalent: "")
-        photo.target = self
-        menu.addItem(photo)
+        // Photo (3D only)
+        if use3D {
+            let photo = NSMenuItem(title: BuddyL10n.menuTakePhoto, action: #selector(takePhoto), keyEquivalent: "")
+            photo.target = self
+            menu.addItem(photo)
+        }
 
         let muted = data.soul?.muted ?? false
         let muteItem = NSMenuItem(
@@ -384,21 +395,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Buddy Panel
 
+    private var use3D = false
+
     private func setupBuddyPanel() {
-        buddyPanel = BuddyPanel()
+        if use3D {
+            buddyPanel = BuddyPanel(width: 250, height: 250)
+            let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 40, width: 250, height: 200))
+            buddy3D.wantsLayer = true
+            buddy3D.layer?.isOpaque = false
+            buddy3D.layer?.backgroundColor = CGColor.clear
+            renderer = buddy3D
 
-        // Use 3D view
-        let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 40, width: 250, height: 200))
-        buddy3D.autoresizingMask = [.width, .height]
-        renderer = buddy3D
+            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 242, height: 48))
 
-        speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 242, height: 48))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 250))
+            contentView.addSubview(speechBubble)
+            contentView.addSubview(buddy3D)
+            buddyPanel.contentView = contentView
+        } else {
+            buddyPanel = BuddyPanel(width: 200, height: 180)
 
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 250))
-        contentView.addSubview(speechBubble)
-        contentView.addSubview(buddy3D)
+            let buddyView = BuddyView(frame: NSRect(x: 0, y: 30, width: 200, height: 140))
+            renderer = buddyView
 
-        buddyPanel.contentView = contentView
+            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 192, height: 36))
+
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 180))
+            contentView.addSubview(speechBubble)
+            contentView.addSubview(buddyView)
+            buddyPanel.contentView = contentView
+        }
+
         buddyPanel.orderFront(nil)
     }
 
@@ -627,6 +654,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         animationController.showReaction(lang == "hu" ? "Magyar nyelv beállítva!" : "Language set to English!")
+    }
+
+    @objc private func toggleRenderMode() {
+        use3D = !use3D
+        UserDefaults.standard.set(use3D, forKey: "buddyUse3D")
+
+        // Tear down old setup
+        animationController.stop()
+        buddyPanel.orderOut(nil)
+
+        // Rebuild
+        setupBuddyPanel()
+        setupAnimations()
+        updateBuddyDisplay()
+        animationController.start()
+
+        // Re-apply state
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.animationController.applyEnvironment()
+            self?.animationController.applyMood()
+        }
     }
 
     @objc private func toggleAccessory(_ sender: NSMenuItem) {

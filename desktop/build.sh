@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/.build/release"
-APP_DIR="$SCRIPT_DIR/ClaudeBuddy.app"
+APP_DIR="$SCRIPT_DIR/.build/ClaudeBuddy.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"

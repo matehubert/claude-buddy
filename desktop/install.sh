@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="ClaudeBuddy"
-APP_DIR="$SCRIPT_DIR/$APP_NAME.app"
+APP_DIR="$SCRIPT_DIR/.build/$APP_NAME.app"
 INSTALL_DIR="$HOME/Applications"
 PLIST_DIR="$HOME/Library/LaunchAgents"
 PLIST_NAME="com.claude.buddy.plist"

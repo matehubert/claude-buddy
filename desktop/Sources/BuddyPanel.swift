@@ -4,12 +4,12 @@ class BuddyPanel: NSPanel {
     private let posXKey = "buddyPanelX"
     private let posYKey = "buddyPanelY"
 
-    init() {
+    init(width: CGFloat = 200, height: CGFloat = 180) {
         let savedX = UserDefaults.standard.double(forKey: posXKey)
         let savedY = UserDefaults.standard.double(forKey: posYKey)
 
-        let width: CGFloat = 250
-        let height: CGFloat = 250
+        let width: CGFloat = width
+        let height: CGFloat = height
 
         let origin: NSPoint
         if savedX != 0 || savedY != 0 {
