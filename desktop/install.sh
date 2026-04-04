@@ -13,16 +13,21 @@ PLIST_PATH="$PLIST_DIR/$PLIST_NAME"
 echo "==> Step 1: Building..."
 bash "$SCRIPT_DIR/build.sh"
 
-# Step 2: Copy to ~/Applications
-echo "==> Step 2: Installing to $INSTALL_DIR..."
+# Step 2: Kill any running instances
+echo "==> Step 2: Stopping running instances..."
+killall ClaudeBuddy 2>/dev/null || true
+sleep 1
+
+# Step 3: Copy to ~/Applications
+echo "==> Step 3: Installing to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALL_DIR/$APP_NAME.app"
 cp -R "$APP_DIR" "$INSTALL_DIR/$APP_NAME.app"
 
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME.app"
 
-# Step 3: Create LaunchAgent for auto-start
-echo "==> Step 3: Setting up LaunchAgent..."
+# Step 4: Create LaunchAgent for auto-start on login
+echo "==> Step 4: Setting up LaunchAgent..."
 mkdir -p "$PLIST_DIR"
 
 cat > "$PLIST_PATH" <<EOF
@@ -46,13 +51,10 @@ cat > "$PLIST_PATH" <<EOF
 </plist>
 EOF
 
-# Unload if already loaded, then load
+# Register LaunchAgent (RunAtLoad=true means it starts immediately + on every login)
 launchctl unload "$PLIST_PATH" 2>/dev/null || true
 launchctl load "$PLIST_PATH"
 
 echo "==> Done!"
 echo "    App installed to: $INSTALLED_APP"
-echo "    LaunchAgent: $PLIST_PATH"
-echo "    Starting now..."
-
-open "$INSTALLED_APP"
+echo "    LaunchAgent: $PLIST_PATH (auto-starts on login)"

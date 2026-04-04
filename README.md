@@ -47,6 +47,9 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **Mouse interaction** — proximity tracking (buddy faces mouse), hover (eye widen), fast mouse away (scared reaction), drag shake detection (wobble)
 - **Photo mode** — snapshot 3D view to PNG
 - **Localization** — auto-detects system language (English/Hungarian), all UI strings and buddy reactions localized, language passed to buddy_react API for AI-generated responses in the correct language
+- **2D/3D toggle** — switch between ASCII sprite and SceneKit 3D rendering on-the-fly via menu, preference persisted
+- **Species reroll** — hatch a brand new egg at any time; resets progress, mood, energy, and streak but keeps settings (language, muted state)
+- **Center Buddy** — bring buddy back to screen center if it wanders off
 - **Menu bar integration** — species emoji + usage percentage, click for usage popover, right-click for full context menu
 - **Usage monitoring** — Claude Code API usage with 5-minute cache, sync button for instant refresh
 
@@ -109,6 +112,7 @@ This builds the Swift app, installs to `~/Applications/ClaudeBuddy.app`, and set
 | `node buddy.mjs achievements` | List unlocked achievements |
 | `node buddy.mjs eyes <style>` | Change eye style |
 | `node buddy.mjs hat <type>` | Change hat |
+| `node buddy.mjs reroll` | Hatch a brand new buddy (resets progress) |
 
 ### Desktop App Menu
 
@@ -117,8 +121,10 @@ Right-click the buddy or the menu bar icon:
 - **Pet / Feed** — interact with your buddy
 - **Pomodoro** — start/stop focus timer
 - **Games** — Click Catch, Hide & Seek, Trivia
-- **Customize** — Eyes, Hat, Accessories, Language
-- **Take Photo** — save 3D snapshot as PNG
+- **Customize** — Eyes, Hat, Accessories, Language, 2D/3D toggle
+- **Hatch New Egg** — reroll species (confirmation dialog, resets progress)
+- **Center Buddy** — snap buddy back to screen center
+- **Take Photo** — save 3D snapshot as PNG (3D mode only)
 - **View Card** — show stat card in a panel
 - **Usage** — Claude Code API usage popover
 
