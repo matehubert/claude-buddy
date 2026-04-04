@@ -276,6 +276,88 @@ enum BuddyL10n {
         current == "hu" ? "Vége! Pont: \(score)" : "Game over! Score: \(score)"
     }
 
+    // MARK: - Active Window Events
+
+    static var windowCodingApp: [String] {
+        current == "hu"
+            ? ["Kódolás!", "Fejlesztés megy!", "Programozunk~"]
+            : ["Coding time!", "Dev mode!", "Let's code~"]
+    }
+
+    static func windowCodingInApp(_ app: String) -> String {
+        current == "hu" ? "Kódolás \(app)-ban!" : "Coding in \(app)!"
+    }
+
+    static var windowBrowser: [String] {
+        current == "hu"
+            ? ["Böngészés...", "Kutatás?", "Web szörfölés~"]
+            : ["Browsing...", "Research?", "Web surfing~"]
+    }
+
+    static var windowOtherApp: [String] {
+        current == "hu"
+            ? ["Hmm, más app...", "Szünet?"]
+            : ["Hmm, different app...", "Taking a break?"]
+    }
+
+    // MARK: - File System Events
+
+    static var fsCodingStorm: [String] {
+        current == "hu"
+            ? ["Kódvihar!!!", "Ennyi fájl egyszerre?!", "Őrült tempó!"]
+            : ["Coding storm!!!", "So many files!", "Wild pace!"]
+    }
+
+    static var fsLotsOfChanges: [String] {
+        current == "hu"
+            ? ["Sok változás!", "Aktív kódolás!", "Jól megy!"]
+            : ["Lots of changes!", "Active coding!", "Going strong!"]
+    }
+
+    static var fsFileActivity: [String] {
+        current == "hu"
+            ? ["Fájl változás!", "Mentés!", "*figyel*"]
+            : ["File changed!", "Saved!", "*watching*"]
+    }
+
+    // MARK: - Claude Code Hook Events
+
+    static var hookSessionStart: [String] {
+        current == "hu"
+            ? ["Claude Code elindult!", "Új session!", "Hali, Claude!"]
+            : ["Claude Code started!", "New session!", "Hi Claude!"]
+    }
+
+    static var hookSessionEnd: [String] {
+        current == "hu"
+            ? ["Session vége!", "Claude Code kész.", "Viszlát, Claude!"]
+            : ["Session ended!", "Claude Code done.", "Bye Claude!"]
+    }
+
+    static var hookRunningTests: [String] {
+        current == "hu"
+            ? ["Tesztek futnak!", "Teszt idő!", "Szorítok a zöld teszteknek!"]
+            : ["Running tests!", "Test time!", "Fingers crossed for green!"]
+    }
+
+    static var hookBuilding: [String] {
+        current == "hu"
+            ? ["Build folyamatban!", "Fordítás...", "Építünk!"]
+            : ["Building!", "Compiling...", "Let's build!"]
+    }
+
+    static var hookRunningCommand: [String] {
+        current == "hu"
+            ? ["Parancs fut!", "Terminal aktivitás!", "*gépelés*"]
+            : ["Running command!", "Terminal activity!", "*typing*"]
+    }
+
+    static var hookWritingCode: [String] {
+        current == "hu"
+            ? ["Claude kódot ír!", "Kód készül!", "AI kódolás!"]
+            : ["Claude is writing code!", "Code incoming!", "AI coding!"]
+    }
+
     // MARK: - Menu Strings
 
     static var menuHideBuddy: String { current == "hu" ? "Buddy elrejtése" : "Hide Buddy" }

@@ -4,6 +4,7 @@ import AppKit
 
 protocol MiniGameDelegate: AnyObject {
     func gameShowBubble(_ text: String, duration: TimeInterval)
+    func gameShowTrivia(question: String, answers: [String], onAnswer: @escaping (Int) -> Void)
     func gameMoveBuddy(to point: NSPoint, duration: TimeInterval)
     func gameGetBuddyPosition() -> NSPoint
     func gameGetScreenFrame() -> NSRect
@@ -142,7 +143,7 @@ class MiniGameManager {
             }
 
         case .trivia:
-            break // Trivia uses numbered answers
+            break // Trivia uses button answers via delegate
         }
     }
 
@@ -221,8 +222,9 @@ class MiniGameManager {
         let q = questions[Int.random(in: 0..<questions.count)]
         currentAnswer = q.correct
 
-        let text = "\(q.q)\n1) \(q.a[0])\n2) \(q.a[1])\n3) \(q.a[2])"
-        delegate?.gameShowBubble(text, duration: 15)
+        delegate?.gameShowTrivia(question: q.q, answers: q.a) { [weak self] answer in
+            self?.answerTrivia(answer)
+        }
 
         // Timeout
         gameTimer?.invalidate()

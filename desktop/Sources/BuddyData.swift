@@ -237,6 +237,54 @@ struct SpriteData {
     }
 }
 
+// MARK: - Node.js Path Resolution
+
+/// Finds the absolute path to `node` binary.
+/// LaunchAgent apps don't inherit the user's shell PATH (nvm, homebrew etc),
+/// so we search common locations.
+func resolveNodePath() -> String {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    // Check nvm — find latest installed version
+    let nvmBase = "\(home)/.nvm/versions/node"
+    if let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmBase) {
+        let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+        for v in sorted {
+            let path = "\(nvmBase)/\(v)/bin/node"
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+    }
+
+    // Check fnm
+    let fnmBase = "\(home)/.local/share/fnm/node-versions"
+    if let versions = try? FileManager.default.contentsOfDirectory(atPath: fnmBase) {
+        let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+        for v in sorted {
+            let path = "\(fnmBase)/\(v)/installation/bin/node"
+            if FileManager.default.isExecutableFile(atPath: path) { return path }
+        }
+    }
+
+    // Check fixed paths
+    for path in ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"] {
+        if FileManager.default.isExecutableFile(atPath: path) { return path }
+    }
+
+    // Fallback — hope it's in PATH
+    return "/usr/bin/env"
+}
+
+/// Cached node path (resolved once at launch)
+let nodePath: String = resolveNodePath()
+
+/// Arguments to run a node script — uses absolute path to node
+func nodeArgs(script: String, args: [String] = []) -> (executable: String, arguments: [String]) {
+    if nodePath.hasSuffix("/env") {
+        return (nodePath, ["node", script] + args)
+    } else {
+        return (nodePath, [script] + args)
+    }
+}
+
 // MARK: - BuddyData Manager
 
 class BuddyData {
@@ -284,8 +332,9 @@ class BuddyData {
         let process = Process()
         let pipe = Pipe()
 
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", buddyMjsPath, "card"]
+        let cmd = nodeArgs(script: buddyMjsPath, args: ["card"])
+        process.executableURL = URL(fileURLWithPath: cmd.executable)
+        process.arguments = cmd.arguments
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
@@ -331,8 +380,9 @@ class BuddyData {
             let process = Process()
             let pipe = Pipe()
 
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["node", self.buddyMjsPath, "pet"]
+            let cmd = nodeArgs(script: self.buddyMjsPath, args: ["pet"])
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
 
@@ -360,8 +410,9 @@ class BuddyData {
             let process = Process()
             let pipe = Pipe()
 
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["node", self.buddyMjsPath, "react", reason]
+            let cmd = nodeArgs(script: self.buddyMjsPath, args: ["react", reason])
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
 

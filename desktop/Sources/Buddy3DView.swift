@@ -43,6 +43,11 @@ class Buddy3DView: SCNView, BuddyRenderer {
     // MARK: - Scene Setup
 
     private func setupScene() {
+        // Layer-backed rendering is required for transparent SCNView in borderless panels
+        wantsLayer = true
+        layer?.isOpaque = false
+        layer?.backgroundColor = CGColor.clear
+
         let scn = SCNScene()
         scn.background.contents = NSColor.clear
         self.scene = scn
@@ -51,6 +56,11 @@ class Buddy3DView: SCNView, BuddyRenderer {
         self.autoenablesDefaultLighting = false
         self.antialiasingMode = .multisampling4X
         self.isJitteringEnabled = false
+
+        // Force Metal rendering for proper transparency compositing
+        if self.renderingAPI == .metal {
+            // Metal is default on modern macOS — good
+        }
 
         // Ortho camera
         let camera = SCNCamera()

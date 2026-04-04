@@ -110,11 +110,88 @@ class SpeechBubbleView: NSView {
         textLabel.stringValue = text
     }
 
-    func hide() {
+    // MARK: - Trivia Buttons
+
+    private var triviaButtons: [NSButton] = []
+    private var triviaCallback: ((Int) -> Void)?
+
+    /// Show trivia question with 3 answer buttons
+    func showTrivia(question: String, answers: [String], onAnswer: @escaping (Int) -> Void) {
+        hideTimer?.invalidate()
         countdownTimer?.invalidate()
+        removeTriviaButtons()
+        triviaCallback = onAnswer
+
+        if homeFrame == .zero {
+            homeFrame = frame
+        }
+
+        // Expand bubble height for buttons
+        var expanded = homeFrame
+        expanded.size.height = homeFrame.height + 78
+        expanded.origin.y = homeFrame.origin.y - 78
+        frame = expanded
+
+        textLabel.stringValue = question
+        needsDisplay = true
+
+        // Create answer buttons
+        let buttonY: CGFloat = expanded.height - 28
+        for (i, answer) in answers.prefix(3).enumerated() {
+            let btn = NSButton(frame: NSRect(x: 10, y: buttonY - CGFloat(i) * 24, width: expanded.width - 20, height: 22))
+            btn.bezelStyle = .recessed
+            btn.title = "\(i + 1)) \(answer)"
+            btn.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+            btn.contentTintColor = .white
+            btn.tag = i + 1
+            btn.target = self
+            btn.action = #selector(triviaButtonClicked(_:))
+            addSubview(btn)
+            triviaButtons.append(btn)
+        }
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.3
+            self.animator().alphaValue = 1.0
+        }
+
+        // Timeout auto-hide after 15s
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+            self?.removeTriviaButtons()
+            self?.hide()
+        }
+    }
+
+    @objc private func triviaButtonClicked(_ sender: NSButton) {
+        let answer = sender.tag
+        removeTriviaButtons()
+        triviaCallback?(answer)
+        triviaCallback = nil
+
+        // Shrink back to normal size after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self, self.homeFrame != .zero else { return }
+            self.frame = self.homeFrame
+            self.needsDisplay = true
+        }
+    }
+
+    private func removeTriviaButtons() {
+        triviaButtons.forEach { $0.removeFromSuperview() }
+        triviaButtons.removeAll()
+    }
+
+    func hide() {
+        hideTimer?.invalidate()
+        countdownTimer?.invalidate()
+        removeTriviaButtons()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.5
             self.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self = self, self.homeFrame != .zero else { return }
+            self.frame = self.homeFrame
+            self.needsDisplay = true
         }
     }
 }

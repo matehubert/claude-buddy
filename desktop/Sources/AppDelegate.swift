@@ -119,6 +119,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.animationController.showReaction(msg)
             }
         }
+        prod.onActiveWindowEvent = { [weak self] category, appName in
+            let msg = ProductivityMonitor.reactionForWindowEvent(category, appName: appName)
+            self?.animationController.showReaction(msg)
+        }
+        prod.onFileSystemEvent = { [weak self] intensity in
+            let msg = ProductivityMonitor.reactionForFSEvent(intensity)
+            self?.animationController.showReaction(msg)
+        }
+        prod.onClaudeCodeEvent = { [weak self] category, _ in
+            let msg = ProductivityMonitor.reactionForHookEvent(category)
+            if !msg.isEmpty {
+                self?.animationController.showReaction(msg)
+            }
+        }
         prod.start()
 
         // Mini Games
@@ -361,7 +375,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         langItem.submenu = langMenu
         customizeMenu.addItem(langItem)
 
-        // Render mode toggle
         let modeTitle = use3D ? "2D Mode (ASCII)" : "3D Mode (SceneKit)"
         let modeItem = NSMenuItem(title: modeTitle, action: #selector(toggleRenderMode), keyEquivalent: "")
         modeItem.target = self
@@ -410,14 +423,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if use3D {
             buddyPanel = BuddyPanel(width: 250, height: 250)
             let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 40, width: 250, height: 200))
-            buddy3D.wantsLayer = true
-            buddy3D.layer?.isOpaque = false
-            buddy3D.layer?.backgroundColor = CGColor.clear
             renderer = buddy3D
 
             speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 242, height: 48))
 
             let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 250))
+            contentView.wantsLayer = true
+            contentView.layer?.isOpaque = false
+            contentView.layer?.backgroundColor = CGColor.clear
             contentView.addSubview(speechBubble)
             contentView.addSubview(buddy3D)
             buddyPanel.contentView = contentView
@@ -697,9 +710,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func runBuddyCommand(_ args: [String], completion: @escaping () -> Void) {
         DispatchQueue.global().async {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let script = "\(home)/.claude/skills/buddy/buddy.mjs"
+            let cmd = nodeArgs(script: script, args: args)
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["node", "\(home)/.claude/skills/buddy/buddy.mjs"] + args
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try? process.run()
@@ -841,8 +856,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let process = Process()
         let pipe = Pipe()
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", "\(home)/.claude/skills/buddy/buddy.mjs", "card"]
+        let script = "\(home)/.claude/skills/buddy/buddy.mjs"
+        let cmd = nodeArgs(script: script, args: ["card"])
+        process.executableURL = URL(fileURLWithPath: cmd.executable)
+        process.arguments = cmd.arguments
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
@@ -876,9 +893,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let newMuted = !soul.muted
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let script = "\(home)/.claude/skills/buddy/buddy.mjs"
+        let cmd = nodeArgs(script: script, args: [newMuted ? "mute" : "unmute"])
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", "\(home)/.claude/skills/buddy/buddy.mjs", newMuted ? "mute" : "unmute"]
+        process.executableURL = URL(fileURLWithPath: cmd.executable)
+        process.arguments = cmd.arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
@@ -901,6 +920,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: MiniGameDelegate {
     func gameShowBubble(_ text: String, duration: TimeInterval) {
         speechBubble.show(text: text, duration: duration)
+    }
+
+    func gameShowTrivia(question: String, answers: [String], onAnswer: @escaping (Int) -> Void) {
+        speechBubble.showTrivia(question: question, answers: answers, onAnswer: onAnswer)
     }
 
     func gameMoveBuddy(to point: NSPoint, duration: TimeInterval) {

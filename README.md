@@ -36,7 +36,7 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **Environment awareness** — time of day detection (morning/afternoon/evening/night) with lighting shifts, dark mode support, live weather via wttr.in (rain → umbrella accessory, sunny → sunglasses)
 - **Pomodoro timer** — 25/5/15 minute cycles with countdown bubble, buddy behavior adapts (less wandering during work, more during breaks)
 - **Mini-games** — Click Catch, Hide & Seek, Trivia via right-click menu
-- **Productivity monitoring** — git HEAD watcher (commit/branch switch/conflict reactions), clipboard monitoring (large paste/code copy detection)
+- **Productivity monitoring** — git HEAD watcher (commit/branch switch/conflict reactions), clipboard monitoring (large paste/code copy detection), active window tracking (coding/browser/other app detection), file system watcher (FSEvents-based change detection with intensity levels), Claude Code hook integration (session/test/build/write events via buddy-hook.mjs)
 - **Achievements** — Pet Lover, Pet Master, Good Caretaker, Fun Times, Week Streak, Monthly Devotion
 - **Streak tracking** — consecutive daily interaction counter
 - **Particle effects** — hearts (pet), confetti (achievements), species-specific (water ripple for duck, cat stars, ghost flame, slime trail)
@@ -83,6 +83,7 @@ This builds the Swift app, installs to `~/Applications/ClaudeBuddy.app`, and set
 **Requirements:**
 - macOS 13+ (Ventura)
 - Swift 5.9+ / Xcode Command Line Tools
+- Node.js 18+ (auto-detected from nvm, fnm, Homebrew, or system install)
 - No external dependencies (SceneKit is a built-in macOS framework)
 
 ## Usage
@@ -143,6 +144,18 @@ Your buddy has emotional state that evolves over time:
 
 **Energy** (0-100): -1 every 10 minutes idle, +5 pet, +15 feed, +10 play. Low energy (<20) forces sad mood.
 
+## Mini-Games
+
+Three games accessible via right-click → Games menu:
+
+| Game | How to Play | Scoring |
+|------|-------------|---------|
+| **Click Catch** | Buddy says "Wait for it..." then "GO!" — click as fast as possible | Points based on reaction time; "Too slow!" if >2s |
+| **Hide & Seek** | Buddy teleports to a random screen position — find and click | Bonus points for speed; times out after a few seconds |
+| **Trivia** | Programming trivia question with 3 clickable answer buttons in speech bubble | 3 questions per round; score tracked |
+
+Games award +10 energy and count toward the "Fun Times" achievement.
+
 ## Environment Awareness
 
 | Feature | How It Works |
@@ -150,6 +163,9 @@ Your buddy has emotional state that evolves over time:
 | Time of day | Detected every 5 min; affects lighting (warm morning, neutral afternoon, orange evening, blue night) and behavior |
 | Dark mode | Listens to `AppleInterfaceThemeChangedNotification` |
 | Weather | Fetches `wttr.in/?format=%C\|%t` every 30 min; rain → umbrella, sunny → sunglasses |
+| Active window | `NSWorkspace.didActivateApplicationNotification`; categorizes apps as coding (VS Code, Xcode, Terminal, iTerm, Warp, Claude Code), browser (Safari, Chrome, Arc), or other; 30s debounce |
+| File system | FSEvents-based recursive directory watcher; filters `.git/`, `.build/`, `node_modules/`; 2s batching with intensity levels (10+ = coding storm, 5+ = lots of changes, 1+ = file activity); 30s debounce |
+| Claude Code hooks | `buddy-hook.mjs` processes PostToolUse/SessionStart/Stop events → `buddy-events.json`; categorizes into session_start/end, running_tests, building, running_command, writing_code; 20s debounce |
 | Screen edge | Buddy detects screen boundaries with bounce physics |
 
 ## Species Gallery
@@ -191,13 +207,72 @@ Your buddy is one of 18 species, each with a unique personality:
 
 ### 3D Models
 
-Each species is built from SceneKit primitives with PBR materials:
-- **Duck**: yellow capsule body + sphere head + cone beak + orange cylinder legs
-- **Cat**: grey capsule + large sphere head + cone ears (pink interior) + cylinder whiskers + tail
-- **Snail**: beige capsule "foot" + brown sphere shell + torus spiral + cylinder eye stalks
-- **Ghost**: translucent white sphere + wavy bottom edge + glowing eyes
-- **Robot**: metallic grey box body + sphere head + antenna
-- All 18 species follow similar primitive-based construction
+Each species is built entirely from SceneKit primitives (`SCNSphere`, `SCNCapsule`, `SCNCone`, `SCNCylinder`, `SCNTorus`, `SCNBox`) with PBR materials (roughness 0.7, metalness 0.1 for a toy/matt look):
+
+```
+ 3D Species Construction (SCN Primitives)
+ ─────────────────────────────────────────
+
+ DUCK                CAT                 SNAIL               GOOSE
+ ┌─sphere─┐         ┌─sphere─┐          ┌─sphere─┐         ┌─sphere─┐
+ │  head   │        │  head   │ ◄cone   │  shell  │←torus  │  head   │
+ └────┬────┘        └──┬──┬──┘  ears    └────┬────┘spiral  └────┬────┘
+ ┌────┴────┐        ┌──┴──┴──┐          ┌────┴────┐        ┌────┴────┐
+ │ capsule │◄cone   │capsule │          │ capsule │        │cylinder │
+ │  body   │ beak   │  body  │←tail     │  body   │←stalks │  neck   │
+ └──┬──┬──┘        └──┬──┬──┘          └─────────┘        └────┬────┘
+   cyl  cyl           sph sph                              ┌────┴────┐
+   feet feet          paws                                 │ capsule │
+                                                           │  body   │
+                                                           └──┬──┬──┘
+                                                             cyl  cyl
+
+ DRAGON              GHOST               OCTOPUS             OWL
+ ┌─sphere─┐         ┌─────────┐         ┌─sphere─┐         ┌─sphere─┐
+ │  head   │←horns  │ capsule │ ◄0.5α   │  head   │        │  head   │←tufts
+ └────┬────┘        │  body   │         └────┬────┘        └────┬────┘
+ ┌────┴────┐        └────┬────┘         ╔════╧════╗        ┌────┴────┐
+ │ capsule │←wings     cone waves      ║8×capsule ║        │ capsule │
+ │  body   │                            ║tentacles║        │  body   │
+ └────┬────┘                            ╚═════════╝        └─────────┘
+    tail
+
+ PENGUIN             TURTLE              AXOLOTL             CAPYBARA
+ ┌─sphere─┐         ┌─sphere─┐         ┌─sphere─┐←gills    ┌─sphere─┐
+ │  head   │        │  head   │         │  head   │ (6×)    │  head   │←ears
+ └────┬────┘        └────┬────┘         └────┬────┘         └────┬────┘
+ ┌────┴────┐        ┌────┴────┐         ┌────┴────┐         ┌────┴────┐
+ │ capsule │←flips  │ sphere  │←legs    │ capsule │←tail    │ capsule │←legs
+ │  body   │        │  shell  │ (4×)    │  body   │ +legs   │  body   │ (4×)
+ └──┬──┬──┘        └─────────┘         └─────────┘         └─────────┘
+   cyl  cyl
+   feet
+
+ CACTUS              ROBOT               RABBIT              MUSHROOM
+    ┌──┐             ┌antenna┐           ┌─capsule─┐        ┌─sphere─┐
+    │sph│ flower     │  sph   │          │  ears    │ (2×)   │   cap  │←spots
+    └──┘             └───┬────┘          └────┬────┘        └────┬────┘
+ ┌──────────┐        ┌───┴────┐          ┌────┴────┐        ┌────┴────┐
+ │ cylinder │←arms   │  box   │←arms     │ sphere  │        │cylinder │
+ │   body   │(2×cap) │  head  │(2×cap)   │  head   │        │  stem   │
+ └──────────┘        ┌───┴────┐          └────┬────┘        └─────────┘
+                     │  box   │←legs     ┌────┴────┐
+                     │  body  │(2×cap)   │ capsule │←tail
+                     └────────┘          │  body   │
+                                         └─────────┘
+
+ BLOB                CHONK
+ ┌──────────┐       ┌─sphere─┐
+ │  sphere  │       │  head   │←ears
+ │  (body)  │←mouth └────┬────┘
+ │ scaled   │       ┌────┴────┐
+ └──────────┘       │ sphere  │←belly
+                    │  body   │ highlight
+                    └────┬────┘
+                        tail
+```
+
+**Shiny variants** add metalness 0.5 + hue-shifting emission animation cycling through the color spectrum.
 
 ### Personalities
 
@@ -287,7 +362,7 @@ desktop/
 │   ├── EnvironmentAwareness.swift   # Time of day, dark mode, weather
 │   ├── PomodoroTimer.swift          # 25/5/15 focus timer
 │   ├── MiniGames.swift             # Click Catch, Hide & Seek, Trivia
-│   ├── ProductivityMonitor.swift    # Git watcher + clipboard monitor
+│   ├── ProductivityMonitor.swift    # Git, clipboard, active window, FSEvents, Claude Code hook monitors
 │   ├── UsageAPI.swift              # Claude Code usage API client
 │   ├── UsageView.swift             # Usage popover UI
 │   └── CredentialManager.swift      # OAuth credential management
@@ -305,6 +380,7 @@ desktop/
 - **Transparent window** — `SCNView.backgroundColor = .clear` + `scene.background.contents = NSColor.clear`
 - **Orthographic camera** — `orthographicScale = 3.0` for flat, cute perspective
 - **Backward-compatible persistence** — new fields in `buddy.json` are optional, old files keep working
+- **Node.js auto-detection** — LaunchAgent apps don't inherit shell PATH, so the app searches `~/.nvm`, `~/.local/share/fnm`, `/opt/homebrew/bin`, `/usr/local/bin` automatically
 
 ## Token Usage
 
@@ -333,9 +409,11 @@ Buddy reactions use a separate `buddy_companion` query source and do not count t
 ├── commands/buddy.md          # /buddy slash command
 ├── skills/buddy/
 │   ├── SKILL.md               # Presentation instructions for Claude
-│   └── buddy.mjs              # Core script (generation, rendering, API)
+│   ├── buddy.mjs              # Core script (generation, rendering, API)
+│   └── buddy-hook.mjs         # Claude Code hook script (PostToolUse/Session events)
 ├── buddy.json                 # Buddy data (soul, mood, energy, language, etc.)
 ├── buddy-history.json         # Recent reaction history
+├── buddy-events.json          # Claude Code hook events (max 50, FIFO)
 └── buddy-pomodoro.json        # Pomodoro timer state
 
 ~/Applications/
