@@ -572,16 +572,24 @@ async function callBuddyReact(bones, soul, reason, transcript) {
   const recent = readReactHistory();
   const url = `https://api.anthropic.com/api/organizations/${orgId}/claude_code/buddy_react`;
 
+  // Include language instruction in personality if set
+  const lang = soul.language || 'en';
+  const langInstruction = lang !== 'en'
+    ? ` IMPORTANT: Always respond in ${lang === 'hu' ? 'Hungarian' : lang}. Use ${lang === 'hu' ? 'Hungarian' : lang} for all your reactions.`
+    : '';
+  const personalityWithLang = (soul.personality + langInstruction).slice(0, 300);
+
   const body = JSON.stringify({
     name: soul.name.slice(0, 32),
-    personality: soul.personality.slice(0, 200),
+    personality: personalityWithLang,
     species: bones.species,
     rarity: bones.rarity,
     stats: bones.stats,
     transcript: (transcript || '').slice(0, 5000),
     reason,
     recent: recent.map(r => r.slice(0, 200)),
-    addressed: false
+    addressed: false,
+    language: lang
   });
 
   try {
@@ -737,6 +745,206 @@ async function main() {
         console.log(JSON.stringify({ action: 'hidden' }));
       }
       break;
+
+    // ─── New Commands: Mood, Feed, Pomodoro, Game, Streak, Achievements ──────
+
+    case 'mood': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const mood = soul.mood || 'content';
+        const energy = soul.energy ?? 80;
+        const moodEmojis = {
+          happy: '😊', content: '🙂', bored: '😐', sad: '😢', excited: '🤩', grumpy: '😤'
+        };
+        const emoji = moodEmojis[mood] || '🙂';
+        const energyBar = '█'.repeat(Math.round(energy / 10)) + '░'.repeat(10 - Math.round(energy / 10));
+        console.log(JSON.stringify({
+          action: 'mood',
+          mood,
+          energy,
+          emoji,
+          rendered: `${emoji} ${soul.name} is ${mood}\nEnergy: [${energyBar}] ${energy}%`,
+          soul
+        }));
+      }
+      break;
+    }
+
+    case 'feed': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const newEnergy = Math.min(100, (soul.energy ?? 80) + 15);
+        const feedCount = (soul.feedCount ?? 0) + 1;
+        let newMood = soul.mood || 'content';
+        if (newMood === 'sad' || newMood === 'bored') newMood = 'content';
+        updateSoul({ energy: newEnergy, feedCount, mood: newMood, lastInteraction: Date.now() / 1000 });
+        const reaction = await callBuddyReact(bones, soul, 'feed', '');
+        console.log(JSON.stringify({
+          action: 'feed',
+          energy: newEnergy,
+          feedCount,
+          mood: newMood,
+          reaction: reaction || '*nom nom nom* Thanks!',
+          soul: { ...soul, energy: newEnergy, feedCount, mood: newMood }
+        }));
+      }
+      break;
+    }
+
+    case 'pomodoro': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+        break;
+      }
+      const subCmd = args[1] || 'status';
+      const pomoPath = join(homedir(), '.claude', 'buddy-pomodoro.json');
+
+      function readPomo() {
+        if (!existsSync(pomoPath)) return { phase: 'idle', startedAt: 0, completedPomodoros: 0 };
+        try { return JSON.parse(readFileSync(pomoPath, 'utf-8')); } catch { return { phase: 'idle', startedAt: 0, completedPomodoros: 0 }; }
+      }
+      function writePomo(p) { writeFileSync(pomoPath, JSON.stringify(p, null, 2)); }
+
+      const pomo = readPomo();
+      if (subCmd === 'start') {
+        pomo.phase = 'work';
+        pomo.startedAt = Date.now();
+        pomo.duration = 25 * 60 * 1000;
+        writePomo(pomo);
+        console.log(JSON.stringify({ action: 'pomodoro', status: 'started', phase: 'work', duration: '25:00' }));
+      } else if (subCmd === 'stop') {
+        pomo.phase = 'idle';
+        writePomo(pomo);
+        console.log(JSON.stringify({ action: 'pomodoro', status: 'stopped' }));
+      } else {
+        // status
+        if (pomo.phase === 'idle') {
+          console.log(JSON.stringify({ action: 'pomodoro', status: 'idle', completedPomodoros: pomo.completedPomodoros || 0 }));
+        } else {
+          const elapsed = Date.now() - pomo.startedAt;
+          const remaining = Math.max(0, (pomo.duration || 25 * 60 * 1000) - elapsed);
+          const mins = Math.floor(remaining / 60000);
+          const secs = Math.floor((remaining % 60000) / 1000);
+          console.log(JSON.stringify({
+            action: 'pomodoro',
+            status: 'running',
+            phase: pomo.phase,
+            remaining: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+            completedPomodoros: pomo.completedPomodoros || 0
+          }));
+        }
+      }
+      break;
+    }
+
+    case 'game': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        // Simple trivia via CLI
+        const questions = [
+          { q: 'What does HTTP stand for?', a: 'HyperText Transfer Protocol' },
+          { q: 'Which port is HTTPS?', a: '443' },
+          { q: 'What year was Python created?', a: '1991' },
+          { q: 'What does API stand for?', a: 'Application Programming Interface' }
+        ];
+        const q = questions[Math.floor(Math.random() * questions.length)];
+        const playCount = (soul.playCount ?? 0) + 1;
+        updateSoul({ playCount, lastInteraction: Date.now() / 1000 });
+        console.log(JSON.stringify({
+          action: 'game',
+          type: 'trivia',
+          question: q.q,
+          answer: q.a,
+          playCount,
+          rendered: `🎮 Trivia!\n\nQ: ${q.q}\nA: ${q.a}`
+        }));
+      }
+      break;
+    }
+
+    case 'streak': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const streak = soul.streak ?? 0;
+        const fire = streak >= 7 ? '🔥' : streak >= 3 ? '✨' : '';
+        console.log(JSON.stringify({
+          action: 'streak',
+          streak,
+          rendered: `${fire} Current streak: ${streak} day${streak !== 1 ? 's' : ''}`
+        }));
+      }
+      break;
+    }
+
+    case 'achievements': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const achievements = soul.achievements || [];
+        const achieveNames = {
+          'pet_10': '🐾 Pet Lover (10 pets)',
+          'pet_100': '🐾 Pet Master (100 pets)',
+          'feed_10': '🍽️ Good Caretaker (10 feeds)',
+          'play_5': '🎮 Fun Times (5 games)',
+          'streak_7': '🔥 Week Streak (7 days)',
+          'streak_30': '🏆 Monthly Devotion (30 days)'
+        };
+        const list = achievements.map(a => achieveNames[a] || a);
+        console.log(JSON.stringify({
+          action: 'achievements',
+          achievements,
+          count: achievements.length,
+          rendered: achievements.length > 0
+            ? `🏆 Achievements (${achievements.length}):\n${list.join('\n')}`
+            : '🏆 No achievements yet! Keep playing!'
+        }));
+      }
+      break;
+    }
+
+    case 'eyes': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const eye = args[1];
+        if (!eye || eye === 'reset') {
+          updateSoul({ customEye: null });
+          console.log(JSON.stringify({ action: 'eyes_reset' }));
+        } else {
+          updateSoul({ customEye: eye });
+          console.log(JSON.stringify({ action: 'eyes_set', eye }));
+        }
+      }
+      break;
+    }
+
+    case 'hat': {
+      const soul = readSoul();
+      if (!soul) {
+        console.log(JSON.stringify({ action: 'not_hatched' }));
+      } else {
+        const hat = args[1];
+        if (!hat || hat === 'reset') {
+          updateSoul({ customHat: null });
+          console.log(JSON.stringify({ action: 'hat_reset' }));
+        } else {
+          updateSoul({ customHat: hat });
+          console.log(JSON.stringify({ action: 'hat_set', hat }));
+        }
+      }
+      break;
+    }
 
     default:
       console.log(JSON.stringify({ action: 'unknown', command }));

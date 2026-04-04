@@ -1,0 +1,6 @@
+.build/
+ClaudeBuddy.app/
+*.o
+*.d
+*.dia
+*.swiftdeps

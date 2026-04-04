@@ -1,6 +1,6 @@
 # Claude Buddy
 
-A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Your buddy is a deterministically generated tamagotchi that lives in your terminal, reacts to your coding activity via the Anthropic API, and keeps you company while you code.
+A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Your buddy is a deterministically generated tamagotchi that lives in your terminal **and on your desktop as a 3D SceneKit companion**, reacts to your coding activity via the Anthropic API, and keeps you company while you code.
 
 ## Example
 
@@ -22,14 +22,37 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 
 ## Features
 
-- **18 species** with unique ASCII sprites and personalities
+### Core
+- **18 species** with unique ASCII sprites, 3D models, and personalities
 - **5 rarity tiers**: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%)
 - **Deterministic**: Same user always gets the same buddy (FNV-1a + Mulberry32 PRNG)
 - **LLM-powered reactions**: Your buddy reacts to your coding via the `buddy_react` API (~100 tokens/call, doesn't count toward usage limits)
 - **6 eye styles**, **8 hat types** (rarity-gated), **1% shiny chance**
 - **5 stats**: DEBUGGING, PATIENCE, CHAOS, WISDOM, SNARK (0-100)
 
+### Desktop App (2.0)
+- **3D SceneKit rendering** — each species built from SCN primitives (sphere, capsule, cone, cylinder, torus) with PBR materials, orthographic camera, transparent window
+- **Mood & Energy system** — mood degrades with inactivity (happy → content → bored → sad), energy 0-100 with decay; affects behavior weights and facial expressions
+- **Environment awareness** — time of day detection (morning/afternoon/evening/night) with lighting shifts, dark mode support, live weather via wttr.in (rain → umbrella accessory, sunny → sunglasses)
+- **Pomodoro timer** — 25/5/15 minute cycles with countdown bubble, buddy behavior adapts (less wandering during work, more during breaks)
+- **Mini-games** — Click Catch, Hide & Seek, Trivia via right-click menu
+- **Productivity monitoring** — git HEAD watcher (commit/branch switch/conflict reactions), clipboard monitoring (large paste/code copy detection)
+- **Achievements** — Pet Lover, Pet Master, Good Caretaker, Fun Times, Week Streak, Monthly Devotion
+- **Streak tracking** — consecutive daily interaction counter
+- **Particle effects** — hearts (pet), confetti (achievements), species-specific (water ripple for duck, cat stars, ghost flame, slime trail)
+- **Accessories** — umbrella, sunglasses, scarf, wings (with flap animation)
+- **3D hats** — crown (with gems), top hat (with red band), propeller (spinning), halo (glowing + bob), wizard (with stars), beanie (with pom-pom), tiny duck
+- **Shiny variants** — metallic PBR + hue-shifting emission animation
+- **Species-specific tricks** — double-click: duck quacks + wing flap, cat jumps + stars, snail hides in shell, ghost goes transparent + BOO!, default spin
+- **Mouse interaction** — proximity tracking (buddy faces mouse), hover (eye widen), fast mouse away (scared reaction), drag shake detection (wobble)
+- **Photo mode** — snapshot 3D view to PNG
+- **Localization** — auto-detects system language (English/Hungarian), all UI strings and buddy reactions localized, language passed to buddy_react API for AI-generated responses in the correct language
+- **Menu bar integration** — species emoji + usage percentage, click for usage popover, right-click for full context menu
+- **Usage monitoring** — Claude Code API usage with 5-minute cache, sync button for instant refresh
+
 ## Installation
+
+### Terminal Companion (slash command)
 
 One-liner:
 
@@ -45,7 +68,23 @@ mkdir -p ~/.claude/commands ~/.claude/skills/buddy
 # Copy buddy.mjs, SKILL.md → ~/.claude/skills/buddy/
 ```
 
+### Desktop App
+
+```bash
+cd desktop
+bash install.sh
+```
+
+This builds the Swift app, installs to `~/Applications/ClaudeBuddy.app`, and sets up a LaunchAgent for auto-start on login.
+
+**Requirements:**
+- macOS 13+ (Ventura)
+- Swift 5.9+ / Xcode Command Line Tools
+- No external dependencies (SceneKit is a built-in macOS framework)
+
 ## Usage
+
+### Terminal Commands
 
 | Command | Description |
 |---------|-------------|
@@ -55,6 +94,57 @@ mkdir -p ~/.claude/commands ~/.claude/skills/buddy
 | `/buddy mute` | Mute buddy reactions |
 | `/buddy unmute` | Unmute buddy reactions |
 | `/buddy off` | Hide buddy |
+
+### CLI Commands (via buddy.mjs)
+
+| Command | Description |
+|---------|-------------|
+| `node buddy.mjs mood` | Show mood emoji + energy bar |
+| `node buddy.mjs feed` | Feed buddy (+15 energy, improves mood) |
+| `node buddy.mjs pomodoro start` | Start 25-minute focus timer |
+| `node buddy.mjs pomodoro stop` | Stop pomodoro |
+| `node buddy.mjs pomodoro status` | Check pomodoro status |
+| `node buddy.mjs game` | Random trivia question |
+| `node buddy.mjs streak` | Show current day streak |
+| `node buddy.mjs achievements` | List unlocked achievements |
+| `node buddy.mjs eyes <style>` | Change eye style |
+| `node buddy.mjs hat <type>` | Change hat |
+
+### Desktop App Menu
+
+Right-click the buddy or the menu bar icon:
+
+- **Pet / Feed** — interact with your buddy
+- **Pomodoro** — start/stop focus timer
+- **Games** — Click Catch, Hide & Seek, Trivia
+- **Customize** — Eyes, Hat, Accessories, Language
+- **Take Photo** — save 3D snapshot as PNG
+- **View Card** — show stat card in a panel
+- **Usage** — Claude Code API usage popover
+
+## Mood & Energy
+
+Your buddy has emotional state that evolves over time:
+
+| Mood | Trigger | Behavior |
+|------|---------|----------|
+| Excited | High energy + interaction | Lots of wandering and exploring |
+| Happy | Pet/play/feed | Active, balanced behavior |
+| Content | Default state | Normal behavior weights |
+| Bored | 3+ hours inactivity | Mostly idle and sitting |
+| Sad | 6+ hours inactivity or low energy | Minimal movement, droopy eyes |
+| Grumpy | — | Irritable expressions |
+
+**Energy** (0-100): -1 every 10 minutes idle, +5 pet, +15 feed, +10 play. Low energy (<20) forces sad mood.
+
+## Environment Awareness
+
+| Feature | How It Works |
+|---------|-------------|
+| Time of day | Detected every 5 min; affects lighting (warm morning, neutral afternoon, orange evening, blue night) and behavior |
+| Dark mode | Listens to `AppleInterfaceThemeChangedNotification` |
+| Weather | Fetches `wttr.in/?format=%C\|%t` every 30 min; rain → umbrella, sunny → sunglasses |
+| Screen edge | Buddy detects screen boundaries with bounce physics |
 
 ## Species Gallery
 
@@ -93,6 +183,16 @@ Your buddy is one of 18 species, each with a unique personality:
    |____|       |    |
 ```
 
+### 3D Models
+
+Each species is built from SceneKit primitives with PBR materials:
+- **Duck**: yellow capsule body + sphere head + cone beak + orange cylinder legs
+- **Cat**: grey capsule + large sphere head + cone ears (pink interior) + cylinder whiskers + tail
+- **Snail**: beige capsule "foot" + brown sphere shell + torus spiral + cylinder eye stalks
+- **Ghost**: translucent white sphere + wavy bottom edge + glowing eyes
+- **Robot**: metallic grey box body + sphere head + antenna
+- All 18 species follow similar primitive-based construction
+
 ### Personalities
 
 | Species | Personality |
@@ -126,11 +226,13 @@ Your buddy is one of 18 species, each with a unique personality:
 | Epic | 4% | ★★★★ | 35 | + Beanie |
 | Legendary | 1% | ★★★★★ | 50 | + Tiny Duck |
 
-Additionally, any buddy has a **1% chance** of being **Shiny** (rainbow shimmer).
+Additionally, any buddy has a **1% chance** of being **Shiny** (rainbow shimmer in terminal, metallic PBR + hue-shifting emission in 3D).
 
 ### Eyes
 
 Six eye styles are randomly assigned: `·` `✦` `×` `◉` `@` `°`
+
+Eyes can be customized via the desktop app menu or `node buddy.mjs eyes <style>`.
 
 ## How It Works
 
@@ -155,7 +257,48 @@ Claude presents ASCII art + reaction via SKILL.md
 
 Your buddy is generated deterministically from your Claude account UUID. The same account always produces the same species, rarity, stats, eyes, and hat.
 
-Reactions are powered by the `buddy_react` API endpoint using your existing Claude Code OAuth credentials (read from macOS Keychain). Each call uses ~100 tokens and is tracked separately from your main usage quota.
+Reactions are powered by the `buddy_react` API endpoint using your existing Claude Code OAuth credentials (read from macOS Keychain or `~/.claude/.credentials.json`). Each call uses ~100 tokens and is tracked separately from your main usage quota.
+
+## Desktop App Architecture
+
+```
+desktop/
+├── Package.swift                    # SPM project, macOS 13+, Swift 5.9
+├── Sources/
+│   ├── main.swift                   # App entry point
+│   ├── AppDelegate.swift            # Main coordinator, menu bar, system wiring
+│   ├── BuddyRenderProtocol.swift    # Renderer abstraction (2D/3D)
+│   ├── BuddyView.swift             # ASCII 2D renderer (BuddyRenderer conformance)
+│   ├── Buddy3DView.swift            # SceneKit 3D renderer
+│   ├── SpeciesModelBuilder.swift    # 18 species as SCN primitives
+│   ├── HatModelBuilder.swift        # 3D hats + accessories
+│   ├── BuddyPanel.swift            # Transparent floating window + drag
+│   ├── SpeechBubbleView.swift       # Reaction text bubble
+│   ├── Animations.swift             # Behavior state machine + all animations
+│   ├── BuddyData.swift             # Soul/bones persistence + file watcher
+│   ├── BuddyLocalization.swift      # EN/HU localized strings
+│   ├── MoodEnergySystem.swift       # Mood/energy/streak/achievements
+│   ├── EnvironmentAwareness.swift   # Time of day, dark mode, weather
+│   ├── PomodoroTimer.swift          # 25/5/15 focus timer
+│   ├── MiniGames.swift             # Click Catch, Hide & Seek, Trivia
+│   ├── ProductivityMonitor.swift    # Git watcher + clipboard monitor
+│   ├── UsageAPI.swift              # Claude Code usage API client
+│   ├── UsageView.swift             # Usage popover UI
+│   └── CredentialManager.swift      # OAuth credential management
+├── build.sh                         # Build script
+├── install.sh                       # Install + LaunchAgent setup
+└── Resources/                       # App icon
+```
+
+### Key Design Decisions
+
+- **Zero external dependencies** — SceneKit is built into macOS
+- **BuddyRenderer protocol** — abstracts over 2D ASCII and 3D SceneKit renderers; the app can switch between them
+- **Primitive-based 3D models** — no external model files; all geometry built from `SCNSphere`, `SCNCapsule`, `SCNCone`, `SCNCylinder`, `SCNTorus`
+- **PBR materials** — roughness 0.7, metalness 0.1 for a matt/toy look; shiny variants use metalness 0.5
+- **Transparent window** — `SCNView.backgroundColor = .clear` + `scene.background.contents = NSColor.clear`
+- **Orthographic camera** — `orthographicScale = 3.0` for flat, cute perspective
+- **Backward-compatible persistence** — new fields in `buddy.json` are optional, old files keep working
 
 ## Token Usage
 
@@ -173,8 +316,9 @@ Buddy reactions use a separate `buddy_companion` query source and do not count t
 
 - Claude Code v2.1.89+
 - Claude Pro/Max subscription
-- macOS (for Keychain credential access)
+- macOS 13+ (Ventura) for the desktop app
 - Node.js 18+
+- Swift 5.9+ / Xcode Command Line Tools (for building the desktop app)
 
 ## File Structure
 
@@ -184,8 +328,15 @@ Buddy reactions use a separate `buddy_companion` query source and do not count t
 ├── skills/buddy/
 │   ├── SKILL.md               # Presentation instructions for Claude
 │   └── buddy.mjs              # Core script (generation, rendering, API)
-├── buddy.json                 # Buddy data (created on first hatch)
-└── buddy-history.json         # Recent reaction history
+├── buddy.json                 # Buddy data (soul, mood, energy, language, etc.)
+├── buddy-history.json         # Recent reaction history
+└── buddy-pomodoro.json        # Pomodoro timer state
+
+~/Applications/
+└── ClaudeBuddy.app            # Desktop companion (installed via install.sh)
+
+~/Library/LaunchAgents/
+└── com.claude.buddy.plist     # Auto-start on login
 ```
 
 ## License
