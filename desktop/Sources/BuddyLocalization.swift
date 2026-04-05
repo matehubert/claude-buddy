@@ -491,6 +491,11 @@ enum BuddyL10n {
         current == "hu" ? "Hangulat: \(mood) | Energia: \(energy)" : "Mood: \(mood) | Energy: \(energy)"
     }
 
+    // MARK: - Today Summary
+
+    static var todayPrefix: String { current == "hu" ? "Ma" : "Today" }
+    static var todayNoActivity: String { current == "hu" ? "Ma: még nincs aktivitás" : "Today: no activity yet" }
+
     // MARK: - Language display names
 
     static let languageNames: [String: String] = [

@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Mouse tracking
     private var globalMouseMonitor: Any?
+    private var globalHotkeyMonitor: Any?
     private var lastMousePos: NSPoint = .zero
     private var lastMouseMoveTime = Date()
     private var mouseNearby = false
@@ -35,6 +36,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupAnimations()
         loadBuddyData()
         setupMouseTracking()
+        setupGlobalHotkey()
         setupSystems()
 
         // Start usage refresh for menu bar display (every 5 min)
@@ -50,6 +52,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             self?.fetchReaction()
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let monitor = globalMouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalMouseMonitor = nil
+        }
+        if let monitor = globalHotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalHotkeyMonitor = nil
+        }
+        buddyPanel.savePosition()
+        MoodEnergySystem.shared.saveToDisk()
     }
 
     // MARK: - System Setup
@@ -553,6 +568,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func setupGlobalHotkey() {
+        globalHotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // Ctrl+Shift+B (layout-independent)
+            if event.modifierFlags.contains(.control),
+               event.modifierFlags.contains(.shift),
+               event.charactersIgnoringModifiers?.lowercased() == "b" {
+                DispatchQueue.main.async {
+                    self?.toggleBuddyVisibility()
+                }
+            }
+        }
+    }
+
     private func handleGlobalMouseMove(_ event: NSEvent) {
         let mousePos = NSEvent.mouseLocation
         let buddyFrame = buddyPanel.frame
@@ -994,6 +1022,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         if let monitor = globalMouseMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = globalHotkeyMonitor {
             NSEvent.removeMonitor(monitor)
         }
         buddyPanel.savePosition()

@@ -36,7 +36,9 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **Environment awareness** — time of day detection (morning/afternoon/evening/night) with lighting shifts, dark mode support, live weather via wttr.in (rain → umbrella accessory, sunny → sunglasses)
 - **Pomodoro timer** — 25/5/15 minute cycles with countdown bubble, buddy behavior adapts (less wandering during work, more during breaks)
 - **Mini-games** — Click Catch, Hide & Seek, Trivia via right-click menu
-- **Productivity monitoring** — git HEAD watcher (commit/branch switch/conflict reactions), clipboard monitoring (large paste/code copy detection), active window tracking (coding/browser/other app detection), file system watcher (FSEvents-based change detection with intensity levels), Claude Code hook integration (session/test/build/write events via buddy-hook.mjs)
+- **Productivity monitoring** — git HEAD watcher (commit/branch switch/conflict reactions), clipboard monitoring (large paste/code copy detection), active window tracking (coding/browser/other app detection), file system watcher (FSEvents-based change detection with intensity levels), Claude Code hook integration (session/test/build/write events via buddy-hook.mjs); contextual reactions show tool names; reduced debounce timers for snappier response
+- **Stat growth** — stats (DEBUGGING, PATIENCE, CHAOS, WISDOM, SNARK) grow from real coding activity: git commits → DEBUGGING, pomodoro → PATIENCE, branch switches → CHAOS, writing code → WISDOM, petting → SNARK; daily cap of +5/stat; bonuses shown on card with green (+N) indicators and growth hints
+- **Rich reaction variety** — 6-8+ reaction variants per category per language (git, clipboard, window, FS, hooks); more personality with humor, curiosity, encouragement
 - **Achievements** — Pet Lover, Pet Master, Good Caretaker, Fun Times, Week Streak, Monthly Devotion
 - **Streak tracking** — consecutive daily interaction counter
 - **Particle effects** — hearts (pet), confetti (achievements), species-specific (water ripple for duck, cat stars, ghost flame, slime trail)
@@ -48,10 +50,14 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **Photo mode** — snapshot 3D view to PNG
 - **Localization** — auto-detects system language (English/Hungarian), all UI strings and buddy reactions localized, language passed to buddy_react API for AI-generated responses in the correct language
 - **2D/3D toggle** — switch between ASCII sprite and SceneKit 3D rendering on-the-fly via menu, preference persisted
-- **Species reroll** — hatch a brand new egg at any time; resets progress, mood, energy, and streak but keeps settings (language, muted state)
+- **Species reroll** — hatch a brand new egg at any time with a 3-step introduction sequence (crack animation → name/species/rarity reveal → welcome message); resets progress, mood, energy, and streak but keeps settings
 - **Center Buddy** — bring buddy back to screen center if it wanders off
 - **Menu bar integration** — species emoji + usage percentage, click for usage popover, right-click for full context menu
 - **Usage monitoring** — Claude Code API usage with 5-minute cache, sync button for instant refresh
+- **Species brand colors** — each species has a unique accent color (duck gold, dragon red, octopus purple, etc.); tints the plan label and usage bars below 50%
+- **Usage popover enhancements** — Overview/Detail toggle (compact vs full view), clickable reset label toggles between relative ("2h 15m") and absolute ("5:30 PM") time
+- **Today productivity summary** — reads `~/.claude/stats-cache.json` for daily message/session/tool counts, combined with buddy stat gains; displayed in the usage popover
+- **Global hotkey** — Ctrl+Shift+B toggles buddy visibility from anywhere
 
 ## Installation
 
@@ -127,7 +133,13 @@ Right-click the buddy or the menu bar icon:
 - **Center Buddy** — snap buddy back to screen center
 - **Take Photo** — save 3D snapshot as PNG (3D mode only)
 - **View Card** — show stat card in a panel
-- **Usage** — Claude Code API usage popover
+- **Usage** — Claude Code API usage popover with Overview/Detail toggle, today summary, species-tinted bars, and clickable reset countdown
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+Shift+B | Toggle buddy visibility (global hotkey, works from any app) |
 
 ## Mood & Energy
 
@@ -143,6 +155,27 @@ Your buddy has emotional state that evolves over time:
 | Grumpy | — | Irritable expressions |
 
 **Energy** (0-100): -1 every 10 minutes idle, +5 pet, +15 feed, +10 play. Low energy (<20) forces sad mood.
+
+## Stat Growth
+
+Stats grow from real coding activity, making each buddy unique to how you work. Growth bonuses are stored in `buddy.json` alongside base stats and displayed on the buddy card.
+
+| Activity | Stat | Amount |
+|----------|------|--------|
+| Git commit | DEBUGGING | +1 |
+| Merge conflict | DEBUGGING | +2 |
+| Branch switch | CHAOS | +1 |
+| Writing code (Claude) | WISDOM | +1 |
+| Pomodoro complete | PATIENCE | +2 |
+| Coding storm (10+ files) | PATIENCE | +2 |
+| Lots of changes (5+ files) | PATIENCE | +1 |
+| Pet buddy | SNARK | +1 |
+| Game complete | CHAOS | +1 |
+| 7-day streak | WISDOM | +3 |
+
+- Daily cap: +5 per stat per day (resets at midnight)
+- Total cap: base + bonus capped at 100
+- Card display: colored bar with green (+N) bonus indicator and growth hints per stat
 
 ## Mini-Games
 
@@ -274,6 +307,11 @@ Each species is built entirely from SceneKit primitives (`SCNSphere`, `SCNCapsul
 
 **Shiny variants** add metalness 0.5 + hue-shifting emission animation cycling through the color spectrum.
 
+**Notable 3D model refinements:**
+- **Ghost** — emoji-inspired redesign: fully opaque white with emission glow, big round head, wavy bottom tendrils (spheres), stubby arms, expressive O-mouth
+- **Blob** — glossy highlight sphere for bubble/jelly look, translucent base puddle, torus mouth
+- **Penguin** — white belly pushed forward for visibility, white face patch (cheeks)
+
 ### Personalities
 
 | Species | Personality |
@@ -296,6 +334,24 @@ Each species is built entirely from SceneKit primitives (`SCNSphere`, `SCNCapsul
 | Rabbit | Hyperactive buddy who speed-reads diffs |
 | Mushroom | Wry fungal sage who speaks in meandering tangents |
 | Chonk | Absolute unit with maximum gravitational presence |
+
+### Species Brand Colors
+
+Each species has a unique accent color used in the usage popover (plan label tint, bar color below 50% utilization):
+
+| Species | Color | Species | Color |
+|---------|-------|---------|-------|
+| Duck | Gold | Goose | Off-white |
+| Cat | Orange | Dragon | Red |
+| Octopus | Purple | Owl | Brown |
+| Penguin | Ice blue | Turtle | Green |
+| Ghost | Lavender | Axolotl | Pink |
+| Capybara | Warm brown | Cactus | Cactus green |
+| Robot | Steel blue | Rabbit | Pastel pink |
+| Mushroom | Mushroom red | Chonk | Warm orange |
+| Blob | Light blue | | |
+
+At 50%+ utilization bars switch to yellow, at 80%+ to red (safety override).
 
 ## Rarity System
 
@@ -356,15 +412,15 @@ desktop/
 │   ├── BuddyPanel.swift            # Transparent floating window + drag
 │   ├── SpeechBubbleView.swift       # Reaction text bubble
 │   ├── Animations.swift             # Behavior state machine + all animations
-│   ├── BuddyData.swift             # Soul/bones persistence + file watcher
-│   ├── BuddyLocalization.swift      # EN/HU localized strings
+│   ├── BuddyData.swift             # Soul/bones persistence + file watcher + SpeciesColors
+│   ├── BuddyLocalization.swift      # EN/HU localized strings + today summary
 │   ├── MoodEnergySystem.swift       # Mood/energy/streak/achievements
 │   ├── EnvironmentAwareness.swift   # Time of day, dark mode, weather
 │   ├── PomodoroTimer.swift          # 25/5/15 focus timer
 │   ├── MiniGames.swift             # Click Catch, Hide & Seek, Trivia
 │   ├── ProductivityMonitor.swift    # Git, clipboard, active window, FSEvents, Claude Code hook monitors
-│   ├── UsageAPI.swift              # Claude Code usage API client
-│   ├── UsageView.swift             # Usage popover UI
+│   ├── UsageAPI.swift              # Claude Code usage API client + stats-cache reader
+│   ├── UsageView.swift             # Usage popover UI (overview/detail, today summary, brand tint, reset toggle)
 │   └── CredentialManager.swift      # OAuth credential management
 ├── build.sh                         # Build script
 ├── install.sh                       # Install + LaunchAgent setup
@@ -414,7 +470,8 @@ Buddy reactions use a separate `buddy_companion` query source and do not count t
 ├── buddy.json                 # Buddy data (soul, mood, energy, language, etc.)
 ├── buddy-history.json         # Recent reaction history
 ├── buddy-events.json          # Claude Code hook events (max 50, FIFO)
-└── buddy-pomodoro.json        # Pomodoro timer state
+├── buddy-pomodoro.json        # Pomodoro timer state
+└── stats-cache.json           # Claude Code daily activity stats (read by desktop app for today summary)
 
 ~/Applications/
 └── ClaudeBuddy.app            # Desktop companion (installed via install.sh)

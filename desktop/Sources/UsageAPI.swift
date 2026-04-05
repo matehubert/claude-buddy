@@ -1,5 +1,28 @@
 import Foundation
 
+// MARK: - Stats Cache (local ~/.claude/stats-cache.json)
+
+struct StatsDailyActivity: Codable {
+    var date: String
+    var messageCount: Int?
+    var sessionCount: Int?
+    var toolCallCount: Int?
+}
+
+struct StatsCache: Codable {
+    var dailyActivity: [StatsDailyActivity]?
+    var totalSessions: Int?
+    var totalMessages: Int?
+}
+
+struct TodaySummary {
+    var messages: Int = 0
+    var sessions: Int = 0
+    var toolCalls: Int = 0
+
+    var isEmpty: Bool { messages == 0 && sessions == 0 && toolCalls == 0 }
+}
+
 // MARK: - Usage Data Models
 
 struct UsageResponse: Codable {
@@ -198,6 +221,36 @@ class UsageAPI {
             if let cached = cachedResponse { return .cached(cached) }
             return .error(error.localizedDescription)
         }
+    }
+
+    // MARK: - Stats Cache Reader
+
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    func readTodaySummary() -> TodaySummary {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = "\(home)/.claude/stats-cache.json"
+        guard let data = FileManager.default.contents(atPath: path),
+              let cache = try? JSONDecoder().decode(StatsCache.self, from: data),
+              let activities = cache.dailyActivity else {
+            return TodaySummary()
+        }
+
+        let today = UsageAPI.dayFormatter.string(from: Date())
+
+        guard let todayEntry = activities.first(where: { $0.date == today }) else {
+            return TodaySummary()
+        }
+
+        return TodaySummary(
+            messages: todayEntry.messageCount ?? 0,
+            sessions: todayEntry.sessionCount ?? 0,
+            toolCalls: todayEntry.toolCallCount ?? 0
+        )
     }
 
     func invalidateCache() {

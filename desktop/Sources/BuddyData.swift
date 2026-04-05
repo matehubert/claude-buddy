@@ -249,6 +249,40 @@ struct SpriteData {
     }
 }
 
+// MARK: - Species Brand Colors
+
+import AppKit
+
+struct SpeciesColors {
+    private static let colorMap: [String: NSColor] = [
+        "duck":      NSColor(red: 0.85, green: 0.75, blue: 0.20, alpha: 1.0),  // arany sárga
+        "goose":     NSColor(name: nil, dynamicProvider: { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(red: 0.92, green: 0.90, blue: 0.85, alpha: 1.0)
+                : NSColor(red: 0.55, green: 0.50, blue: 0.40, alpha: 1.0)
+        }),  // off-white (dark) / warm brown (light)
+        "cat":       NSColor(red: 0.95, green: 0.55, blue: 0.20, alpha: 1.0),  // narancs
+        "dragon":    NSColor(red: 0.90, green: 0.20, blue: 0.20, alpha: 1.0),  // piros
+        "octopus":   NSColor(red: 0.60, green: 0.30, blue: 0.80, alpha: 1.0),  // lila
+        "owl":       NSColor(red: 0.60, green: 0.40, blue: 0.25, alpha: 1.0),  // barna
+        "penguin":   NSColor(red: 0.50, green: 0.80, blue: 0.95, alpha: 1.0),  // jégkék
+        "turtle":    NSColor(red: 0.30, green: 0.75, blue: 0.40, alpha: 1.0),  // zöld
+        "ghost":     NSColor(red: 0.75, green: 0.65, blue: 0.90, alpha: 1.0),  // halványlila
+        "axolotl":   NSColor(red: 0.95, green: 0.50, blue: 0.70, alpha: 1.0),  // pink
+        "capybara":  NSColor(red: 0.65, green: 0.45, blue: 0.30, alpha: 1.0),  // meleg barna
+        "cactus":    NSColor(red: 0.35, green: 0.70, blue: 0.35, alpha: 1.0),  // kaktusz zöld
+        "robot":     NSColor(red: 0.45, green: 0.60, blue: 0.80, alpha: 1.0),  // acélkék
+        "rabbit":    NSColor(red: 0.95, green: 0.75, blue: 0.80, alpha: 1.0),  // pasztell pink
+        "mushroom":  NSColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 1.0),  // gomba piros
+        "chonk":     NSColor(red: 0.90, green: 0.55, blue: 0.25, alpha: 1.0),  // meleg narancs
+        "blob":      NSColor(red: 0.55, green: 0.75, blue: 0.95, alpha: 1.0),  // világoskék
+    ]
+
+    static func accentColor(for species: String) -> NSColor {
+        return colorMap[species] ?? NSColor.systemBlue
+    }
+}
+
 // MARK: - Node.js Path Resolution
 
 /// Finds the absolute path to `node` binary.

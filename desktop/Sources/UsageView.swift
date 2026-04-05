@@ -4,12 +4,16 @@ class UsageViewController: NSViewController {
     private var stackView: NSStackView!
     private var planLabel: NSTextField!
     private var syncButton: NSButton!
+    private var detailButton: NSButton!
     private var fiveHourBar: UsageBarView!
     private var sevenDayBar: UsageBarView!
     private var opusBar: UsageBarView!
     private var sonnetBar: UsageBarView!
     private var extraLabel: NSTextField!
+    private var todayDivider: NSBox!
+    private var todayLabel: NSTextField!
     private var refreshTimer: Timer?
+    private var isDetailMode = false
 
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 280))
@@ -45,6 +49,12 @@ class UsageViewController: NSViewController {
         spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 10).isActive = true
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         headerRow.addArrangedSubview(spacer)
+
+        detailButton = NSButton(title: "Detail", target: self, action: #selector(detailToggleClicked))
+        detailButton.bezelStyle = .inline
+        detailButton.font = .systemFont(ofSize: 11)
+        detailButton.controlSize = .small
+        headerRow.addArrangedSubview(detailButton)
 
         syncButton = NSButton(title: "Sync", target: self, action: #selector(syncClicked))
         syncButton.bezelStyle = .inline
@@ -83,7 +93,69 @@ class UsageViewController: NSViewController {
         extraLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(extraLabel)
 
+        // Today summary section
+        todayDivider = NSBox()
+        todayDivider.boxType = .separator
+        stackView.addArrangedSubview(todayDivider)
+        todayDivider.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        todayLabel = NSTextField(labelWithString: BuddyL10n.todayNoActivity)
+        todayLabel.font = .systemFont(ofSize: 11)
+        todayLabel.textColor = .secondaryLabelColor
+        stackView.addArrangedSubview(todayLabel)
+
         self.view = container
+    }
+
+    @objc private func detailToggleClicked() {
+        isDetailMode = !isDetailMode
+        detailButton.title = isDetailMode ? "Overview" : "Detail"
+        if isDetailMode {
+            // Switching to detail: re-fetch so updateUI sets correct bar visibility
+            refreshUsage()
+        } else {
+            applyViewMode()
+        }
+    }
+
+    private func applyViewMode() {
+        if !isDetailMode {
+            // Overview: hide detail bars, keep fiveHourBar + today visible
+            sevenDayBar.isHidden = true
+            opusBar.isHidden = true
+            sonnetBar.isHidden = true
+            extraLabel.isHidden = true
+        } else {
+            // Detail: restore extraLabel; bars are set by updateUI based on API data
+            sevenDayBar.isHidden = false
+            extraLabel.isHidden = false
+        }
+
+        // Resize popover
+        let fittingHeight = stackView.fittingSize.height + 32
+        view.frame.size.height = max(fittingHeight, isDetailMode ? 200 : 120)
+        preferredContentSize = NSSize(width: 300, height: view.frame.size.height)
+    }
+
+    private func updateTodaySummary() {
+        let stats = UsageAPI.shared.readTodaySummary()
+
+        // Combine with dailyStatGains from soul
+        var statGainTotal = 0
+        if let gains = BuddyData.shared.soul?.dailyStatGains {
+            statGainTotal = gains.values.reduce(0, +)
+        }
+
+        if stats.isEmpty && statGainTotal == 0 {
+            todayLabel.stringValue = BuddyL10n.todayNoActivity
+        } else {
+            var parts: [String] = []
+            if stats.messages > 0 { parts.append("\(stats.messages) msgs") }
+            if stats.toolCalls > 0 { parts.append("\(stats.toolCalls) tools") }
+            if stats.sessions > 0 { parts.append("\(stats.sessions) sessions") }
+            if statGainTotal > 0 { parts.append("+\(statGainTotal) stats") }
+            todayLabel.stringValue = "\(BuddyL10n.todayPrefix): \(parts.joined(separator: " · "))"
+        }
     }
 
     @objc private func syncClicked() {
@@ -140,6 +212,15 @@ class UsageViewController: NSViewController {
         let plan = UsageAPI.shared.planInfo
         planLabel.stringValue = "Claude Code — \(plan.displayName)"
 
+        // Brand tint from species
+        let species = BuddyData.shared.bones?.species ?? ""
+        let brandColor = SpeciesColors.accentColor(for: species)
+        planLabel.textColor = brandColor
+        fiveHourBar.brandTint = brandColor
+        sevenDayBar.brandTint = brandColor
+        opusBar.brandTint = brandColor
+        sonnetBar.brandTint = brandColor
+
         // 5-hour session (utilization is 0-100 from API)
         if let fh = usage.fiveHour {
             let pct = fh.utilization ?? 0
@@ -185,10 +266,11 @@ class UsageViewController: NSViewController {
             extraLabel.stringValue = ""
         }
 
-        // Resize popover to fit content
-        let fittingHeight = stackView.fittingSize.height + 32
-        view.frame.size.height = max(fittingHeight, 160)
-        preferredContentSize = NSSize(width: 300, height: view.frame.size.height)
+        // Today summary
+        updateTodaySummary()
+
+        // Apply view mode and resize
+        applyViewMode()
     }
 }
 
@@ -203,6 +285,9 @@ class UsageBarView: NSView {
     private var barWidthConstraint: NSLayoutConstraint!
     private var currentPercentage: Double = 0
     private var pulseTimer: Timer?
+    static var showAbsoluteTime = false
+    private var currentResetTime: String?
+    var brandTint: NSColor?
 
     convenience init(title: String) {
         self.init(frame: .zero)
@@ -248,6 +333,9 @@ class UsageBarView: NSView {
         resetLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(resetLabel)
 
+        let clickGesture = NSClickGestureRecognizer(target: self, action: #selector(resetLabelClicked))
+        resetLabel.addGestureRecognizer(clickGesture)
+
         barWidthConstraint = barFill.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
@@ -274,12 +362,13 @@ class UsageBarView: NSView {
     /// percentage: 0-100 value directly from API (e.g. 9.0 means 9%)
     func update(percentage: Double, resetTime: String?) {
         self.currentPercentage = percentage
+        self.currentResetTime = resetTime
         percentLabel.stringValue = String(format: "%.0f%%", percentage)
 
-        // Color: green < 50%, yellow 50-80%, red > 80%
+        // Color: brand tint < 50%, yellow 50-80%, red > 80%
         let color: NSColor
         if percentage < 50 {
-            color = NSColor.systemGreen
+            color = brandTint ?? NSColor.systemGreen
         } else if percentage < 80 {
             color = NSColor.systemYellow
         } else {
@@ -307,29 +396,13 @@ class UsageBarView: NSView {
             }
         }
 
-        if let rt = resetTime {
-            resetLabel.stringValue = "Resets in \(formatResetTime(rt))"
-        } else {
-            resetLabel.stringValue = ""
-        }
+        updateResetDisplay()
 
         if percentage > 80 {
             startPulse()
         } else {
             stopPulse()
         }
-    }
-
-    private func formatResetTime(_ isoString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var date = formatter.date(from: isoString)
-        if date == nil {
-            formatter.formatOptions = [.withInternetDateTime]
-            date = formatter.date(from: isoString)
-        }
-        guard let d = date else { return isoString }
-        return formatRelative(d)
     }
 
     private func formatRelative(_ date: Date) -> String {
@@ -365,5 +438,41 @@ class UsageBarView: NSView {
         pulseTimer?.invalidate()
         pulseTimer = nil
         barFill.alphaValue = 1.0
+    }
+
+    @objc private func resetLabelClicked() {
+        UsageBarView.showAbsoluteTime = !UsageBarView.showAbsoluteTime
+        updateResetDisplay()
+    }
+
+    private func updateResetDisplay() {
+        guard let rt = currentResetTime else {
+            resetLabel.stringValue = ""
+            return
+        }
+        resetLabel.stringValue = formatResetDisplay(rt)
+    }
+
+    private func formatResetDisplay(_ isoString: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = formatter.date(from: isoString)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: isoString)
+        }
+        guard let d = date else { return isoString }
+
+        if UsageBarView.showAbsoluteTime {
+            return "Resets at \(formatAbsoluteTime(d))"
+        } else {
+            return "Resets in \(formatRelative(d))"
+        }
+    }
+
+    private func formatAbsoluteTime(_ date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "h:mm a"
+        return fmt.string(from: date)
     }
 }
