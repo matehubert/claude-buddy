@@ -846,7 +846,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showCard() {
         let cardPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
             styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -856,10 +856,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         cardPanel.level = .floating
         cardPanel.center()
 
-        let textView = NSTextView(frame: NSRect(x: 16, y: 16, width: 418, height: 288))
+        let textView = NSTextView(frame: NSRect(x: 16, y: 16, width: 448, height: 488))
         textView.isEditable = false
         textView.backgroundColor = NSColor(white: 0.08, alpha: 1.0)
-        textView.font = NSFont(name: "Menlo", size: 13) ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.textColor = .white
 
         let process = Process()
@@ -876,21 +875,86 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try process.run()
             process.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data),
-               let rendered = result.rendered {
-                textView.string = rendered
+            if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
+                let attrString = buildCardAttributedString(result: result)
+                textView.textStorage?.setAttributedString(attrString)
             } else {
+                textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
                 textView.string = "Could not load buddy card."
             }
         } catch {
+            textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
             textView.string = "Error loading buddy card."
         }
 
-        let scrollView = NSScrollView(frame: NSRect(x: 16, y: 16, width: 418, height: 288))
+        let scrollView = NSScrollView(frame: NSRect(x: 16, y: 16, width: 448, height: 488))
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         cardPanel.contentView?.addSubview(scrollView)
         cardPanel.orderFront(nil)
+    }
+
+    private func buildCardAttributedString(result: BuddyCardResult) -> NSAttributedString {
+        let str = NSMutableAttributedString()
+        let monoFont = NSFont(name: "Menlo", size: 13) ?? .monospacedSystemFont(ofSize: 13, weight: .regular)
+        let titleFont = NSFont.systemFont(ofSize: 20, weight: .bold)
+        let subtitleFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+        let statFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        let hintFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+        let white = NSColor.white
+        let gray = NSColor(white: 0.55, alpha: 1.0)
+        let accent = NSColor(red: 0.4, green: 0.8, blue: 1.0, alpha: 1.0)
+        let green = NSColor(red: 0.4, green: 0.9, blue: 0.5, alpha: 1.0)
+
+        guard let bones = result.bones, let soul = result.soul else {
+            str.append(NSAttributedString(string: result.rendered ?? "No data", attributes: [.font: monoFont, .foregroundColor: white]))
+            return str
+        }
+
+        // Name
+        str.append(NSAttributedString(string: "\(soul.name)\n", attributes: [.font: titleFont, .foregroundColor: white]))
+
+        // Rarity + species
+        let rarityStars = ["common": "\u{2605}", "uncommon": "\u{2605}\u{2605}", "rare": "\u{2605}\u{2605}\u{2605}", "epic": "\u{2605}\u{2605}\u{2605}\u{2605}", "legendary": "\u{2605}\u{2605}\u{2605}\u{2605}\u{2605}"]
+        let stars = rarityStars[bones.rarity] ?? "\u{2605}"
+        let shiny = bones.shiny ? " \u{2728} SHINY" : ""
+        let species = bones.species.prefix(1).uppercased() + bones.species.dropFirst()
+        let rarity = bones.rarity.prefix(1).uppercased() + bones.rarity.dropFirst()
+        str.append(NSAttributedString(string: "\(stars) \(rarity) \(species)\(shiny) · Hatched: \(soul.hatchDate)\n\n", attributes: [.font: subtitleFont, .foregroundColor: gray]))
+
+        // Sprite
+        let spriteLines = SpriteData.renderSprite(species: bones.species, eye: bones.eye, hat: bones.hat)
+        let sprite = spriteLines.joined(separator: "\n")
+        str.append(NSAttributedString(string: "\(sprite)\n\n", attributes: [.font: monoFont, .foregroundColor: white]))
+
+        // Stats with bonuses
+        let statEmojis = ["DEBUGGING": "\u{1F41B}", "PATIENCE": "\u{23F3}", "CHAOS": "\u{1F300}", "WISDOM": "\u{1F9E0}", "SNARK": "\u{1F60F}"]
+        let statHints = ["DEBUGGING": "commits · tests", "PATIENCE": "builds · pomodoro · file storms", "CHAOS": "branch switches · games", "WISDOM": "writing code · sessions", "SNARK": "petting your buddy"]
+        let statNames = ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"]
+
+        for sn in statNames {
+            let base = bones.stats[sn] ?? 0
+            let bonus = soul.statBonuses?[sn] ?? 0
+            let total = min(100, base + bonus)
+            let emoji = statEmojis[sn] ?? ""
+            let barWidth = 16
+            let filled = Int(round(Double(total) / 100.0 * Double(barWidth)))
+            let bar = String(repeating: "\u{2588}", count: filled) + String(repeating: "\u{2591}", count: barWidth - filled)
+            let bonusStr = bonus > 0 ? " (+\(bonus))" : ""
+
+            str.append(NSAttributedString(string: "\(emoji) \(sn) ", attributes: [.font: statFont, .foregroundColor: white]))
+            str.append(NSAttributedString(string: bar, attributes: [.font: monoFont, .foregroundColor: accent]))
+            str.append(NSAttributedString(string: " \(total)", attributes: [.font: statFont, .foregroundColor: white]))
+            if bonus > 0 {
+                str.append(NSAttributedString(string: bonusStr, attributes: [.font: statFont, .foregroundColor: green]))
+            }
+            str.append(NSAttributedString(string: "\n", attributes: [:]))
+
+            let hint = statHints[sn] ?? ""
+            str.append(NSAttributedString(string: "     \(hint)\n\n", attributes: [.font: hintFont, .foregroundColor: gray]))
+        }
+
+        return str
     }
 
     @objc private func showUsage() {

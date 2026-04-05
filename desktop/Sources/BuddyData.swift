@@ -23,6 +23,11 @@ struct BuddySoul: Codable {
     var petCount: Int?
     var playCount: Int?
     var lastInteraction: Double?
+
+    // Stat growth bonuses (from coding activity)
+    var statBonuses: [String: Int]?
+    var dailyStatGains: [String: Int]?
+    var lastStatResetDate: String?
 }
 
 // MARK: - Buddy Bones (generated from buddy.mjs card command)
@@ -42,7 +47,14 @@ struct BuddyCardResult: Codable {
     var bones: BuddyBones?
     var soul: BuddySoul?
     var rendered: String?
+    var renderedMarkdown: String?
     var reaction: String?
+    var statGrowth: StatGrowth?
+}
+
+struct StatGrowth: Codable {
+    var stat: String
+    var amount: Int
 }
 
 // MARK: - Sprite Data (embedded, matching buddy.mjs)
