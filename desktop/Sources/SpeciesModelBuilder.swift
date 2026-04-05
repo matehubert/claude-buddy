@@ -594,12 +594,12 @@ class SpeciesModelBuilder {
         bodyNode.position = SCNVector3(0, 0.4, 0)
         root.addChildNode(bodyNode)
 
-        // White belly
-        let belly = SCNSphere(radius: 0.3)
+        // White belly — push forward enough to be visible in front of body
+        let belly = SCNCapsule(capRadius: 0.26, height: 0.55)
         belly.firstMaterial = mat(.white, shiny: shiny)
         let bellyNode = SCNNode(geometry: belly)
-        bellyNode.position = SCNVector3(0, 0.4, 0.1)
-        bellyNode.scale = SCNVector3(0.75, 1.0, 0.5)
+        bellyNode.position = SCNVector3(0, 0.4, 0.2)
+        bellyNode.scale = SCNVector3(0.8, 0.95, 0.5)
         root.addChildNode(bellyNode)
 
         let head = SCNSphere(radius: 0.3)
@@ -607,6 +607,14 @@ class SpeciesModelBuilder {
         let headNode = SCNNode(geometry: head)
         headNode.position = SCNVector3(0, 1.0, 0)
         root.addChildNode(headNode)
+
+        // White face patch (cheeks)
+        let face = SCNSphere(radius: 0.22)
+        face.firstMaterial = mat(.white, shiny: shiny)
+        let faceNode = SCNNode(geometry: face)
+        faceNode.position = SCNVector3(0, 1.0, 0.15)
+        faceNode.scale = SCNVector3(0.85, 0.75, 0.5)
+        root.addChildNode(faceNode)
 
         let leftEye = buildEye(radius: 0.06)
         leftEye.position = SCNVector3(-0.12, 1.08, 0.24)

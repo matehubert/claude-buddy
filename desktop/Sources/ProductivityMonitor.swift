@@ -227,9 +227,9 @@ class ProductivityMonitor {
                   let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   let bundleId = app.bundleIdentifier else { return }
 
-            // Debounce: max 1 reaction per 30s
+            // Debounce: max 1 reaction per 15s
             let now = Date()
-            guard now.timeIntervalSince(self.lastWindowReactionTime) >= 30 else { return }
+            guard now.timeIntervalSince(self.lastWindowReactionTime) >= 15 else { return }
             self.lastWindowReactionTime = now
 
             let category = Self.categorizeApp(bundleId)
@@ -382,9 +382,9 @@ class ProductivityMonitor {
 
         guard count > 0 else { return }
 
-        // Debounce: max 1 reaction per 30s
+        // Debounce: max 1 reaction per 20s
         let now = Date()
-        guard now.timeIntervalSince(lastFSReactionTime) >= 30 else { return }
+        guard now.timeIntervalSince(lastFSReactionTime) >= 20 else { return }
         lastFSReactionTime = now
 
         let intensity: String
@@ -446,9 +446,9 @@ class ProductivityMonitor {
     }
 
     private func processHookEvents() {
-        // Debounce: max 1 reaction per 20s
+        // Debounce: max 1 reaction per 10s
         let now = Date()
-        guard now.timeIntervalSince(lastHookEventTime) >= 20 else { return }
+        guard now.timeIntervalSince(lastHookEventTime) >= 10 else { return }
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let eventsPath = "\(home)/.claude/buddy-events.json"
@@ -473,7 +473,7 @@ class ProductivityMonitor {
         onClaudeCodeEvent?(category, detail)
     }
 
-    static func reactionForHookEvent(_ category: String) -> String {
+    static func reactionForHookEvent(_ category: String, detail: String = "") -> String {
         switch category {
         case "session_start":
             return BuddyL10n.hookSessionStart.randomElement()!
@@ -486,6 +486,10 @@ class ProductivityMonitor {
         case "running_command":
             return BuddyL10n.hookRunningCommand.randomElement()!
         case "writing_code":
+            if !detail.isEmpty && detail != "Write" && detail != "Edit" {
+                let hu = BuddyL10n.current == "hu"
+                return hu ? "Claude \(detail)-tel dolgozik!" : "Claude using \(detail)!"
+            }
             return BuddyL10n.hookWritingCode.randomElement()!
         default:
             return ""

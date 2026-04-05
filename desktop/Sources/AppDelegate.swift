@@ -127,8 +127,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let msg = ProductivityMonitor.reactionForFSEvent(intensity)
             self?.animationController.showReaction(msg)
         }
-        prod.onClaudeCodeEvent = { [weak self] category, _ in
-            let msg = ProductivityMonitor.reactionForHookEvent(category)
+        prod.onClaudeCodeEvent = { [weak self] category, detail in
+            let msg = ProductivityMonitor.reactionForHookEvent(category, detail: detail)
             if !msg.isEmpty {
                 self?.animationController.showReaction(msg)
             }
@@ -743,15 +743,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Reload buddy data (triggers onUpdate → updateBuddyDisplay)
             BuddyData.shared.reload()
 
-            // Hatch animation
+            // Step 1: Hatch crack animation
             self?.renderer.triggerParticleEffect(.confetti)
             self?.animationController.showReaction("*crack* ...!")
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            // Step 2: Name, species, rarity introduction
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
                 let name = BuddyData.shared.soul?.name ?? "?"
                 let species = BuddyData.shared.bones?.species ?? "?"
+                let rarity = BuddyData.shared.bones?.rarity ?? "Common"
                 self?.renderer.triggerParticleEffect(.confetti)
-                self?.animationController.showReaction("\(name) (\(species))!")
+                let greeting = BuddyL10n.hatchGreeting(name: name, species: species, rarity: rarity)
+                self?.speechBubble.show(text: greeting, duration: 5.0)
+            }
+
+            // Step 3: Welcome message
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+                let welcome = BuddyL10n.hatchWelcome.randomElement()!
+                self?.animationController.showReaction(welcome)
             }
         }
     }

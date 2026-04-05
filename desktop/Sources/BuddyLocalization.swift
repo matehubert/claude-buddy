@@ -178,26 +178,42 @@ enum BuddyL10n {
 
     static var gitCommit: [String] {
         current == "hu"
-            ? ["Szép commit!", "Hajrá!", "Kód commitolva!", "Jó mentés!", "Commitolva!"]
-            : ["Nice commit!", "Ship it!", "Code committed!", "Good save!", "Committed!"]
+            ? ["Szép commit!", "Hajrá!", "Kód commitolva!", "Jó mentés!", "Commitolva!",
+               "Egy commit közelebb a kész kódhoz!", "Szép checkpoint!",
+               "Elmentve az utókornak!"]
+            : ["Nice commit!", "Ship it!", "Code committed!", "Good save!", "Committed!",
+               "One commit closer to done!", "Nice checkpoint!",
+               "Saved for posterity!"]
     }
 
     static var gitConflict: [String] {
         current == "hu"
-            ? ["Jaj! Merge konflikt!", "Konflikt! Sok sikert!", "Ajaj, konfliktusok..."]
-            : ["Yikes! Merge conflict!", "Conflict detected! Good luck!", "Uh oh, conflicts..."]
+            ? ["Jaj! Merge konflikt!", "Konflikt! Sok sikert!", "Ajaj, konfliktusok...",
+               "Ütközés! Kitartás!", "Merge harc... melyik kód nyer?",
+               "Konflikt detektálva... légy erős!"]
+            : ["Yikes! Merge conflict!", "Conflict detected! Good luck!", "Uh oh, conflicts...",
+               "Collision! Stay strong!", "Merge fight... which code wins?",
+               "Conflict detected... be brave!"]
     }
 
     static var gitBranchSwitch: [String] {
         current == "hu"
-            ? ["Új branch!", "Branch váltás!", "Másik branch!"]
-            : ["New branch!", "Branch switch!", "Different branch now!"]
+            ? ["Új branch!", "Branch váltás!", "Másik branch!",
+               "Ugrás másik ágra!", "Branch csere!",
+               "Új ág, új kaland!"]
+            : ["New branch!", "Branch switch!", "Different branch now!",
+               "Jumping to another branch!", "Branch swap!",
+               "New branch, new adventure!"]
     }
 
     static var gitPush: [String] {
         current == "hu"
-            ? ["Pusholva!", "A kód kint van!", "Kitelepítve!"]
-            : ["Pushed!", "Code is live!", "Deployed!"]
+            ? ["Pusholva!", "A kód kint van!", "Kitelepítve!",
+               "Fent a kód a szerveren!", "Push sikeres!",
+               "Világ, itt a kódom!"]
+            : ["Pushed!", "Code is live!", "Deployed!",
+               "Code is on the server!", "Push successful!",
+               "World, here's my code!"]
     }
 
     static var gitDefault: String {
@@ -208,14 +224,22 @@ enum BuddyL10n {
 
     static var clipboardLargePaste: [String] {
         current == "hu"
-            ? ["Ez aztán a nagy paste!", "Sok kód!", "Kemény meló!"]
-            : ["Heavy lifting!", "That's a big paste!", "Lots of code!"]
+            ? ["Ez aztán a nagy paste!", "Sok kód!", "Kemény meló!",
+               "Hatalmas paste!", "Ezt hol találtad?",
+               "Copy-paste mester!", "Na ez nem kicsi..."]
+            : ["Heavy lifting!", "That's a big paste!", "Lots of code!",
+               "Massive paste!", "Where'd you find this?",
+               "Copy-paste master!", "That's not small..."]
     }
 
     static var clipboardCodeCopy: [String] {
         current == "hu"
-            ? ["Kódot másolsz?", "Ctrl+C elkapva!", "Kódrészlet!"]
-            : ["Copying code?", "Ctrl+C detected!", "Code snippet!"]
+            ? ["Kódot másolsz?", "Ctrl+C elkapva!", "Kódrészlet!",
+               "Jó kódrészlet!", "StackOverflow?",
+               "Kód vágólapra!", "Snippetelünk?"]
+            : ["Copying code?", "Ctrl+C detected!", "Code snippet!",
+               "Nice snippet!", "StackOverflow?",
+               "Code to clipboard!", "Snippeting?"]
     }
 
     // MARK: - Mini Games
@@ -278,84 +302,146 @@ enum BuddyL10n {
 
     // MARK: - Active Window Events
 
-    static var windowCodingApp: [String] {
-        current == "hu"
-            ? ["Kódolás!", "Fejlesztés megy!", "Programozunk~"]
-            : ["Coding time!", "Dev mode!", "Let's code~"]
-    }
-
     static func windowCodingInApp(_ app: String) -> String {
-        current == "hu" ? "Kódolás \(app)-ban!" : "Coding in \(app)!"
+        let templates: [String] = current == "hu"
+            ? ["Kódolás \(app)-ban!", "Hajrá, \(app)!", "Hmm, \(app)... mit építünk?",
+               "Nyitva a \(app), mehet a kód!", "\(app) mód bekapcsolva!",
+               "Lássuk mit hoz a \(app)!", "A \(app) vár, kódoljunk!"]
+            : ["Coding in \(app)!", "Go \(app)!", "Hmm, \(app)... what are we building?",
+               "\(app) is open, let's code!", "\(app) mode activated!",
+               "Let's see what \(app) brings!", "\(app) awaits, let's code!"]
+        return templates.randomElement()!
     }
 
     static var windowBrowser: [String] {
         current == "hu"
-            ? ["Böngészés...", "Kutatás?", "Web szörfölés~"]
-            : ["Browsing...", "Research?", "Web surfing~"]
+            ? ["Böngészés...", "Kutatás?", "StackOverflow idő?",
+               "Hmm, dokumentáció olvasás?", "Google-ölünk?",
+               "Remélem nem Reddit...", "Pár perc szörfölés~"]
+            : ["Browsing...", "Research?", "StackOverflow time?",
+               "Hmm, reading docs?", "Googling?",
+               "Hope it's not Reddit...", "Quick surf~"]
     }
 
     static var windowOtherApp: [String] {
         current == "hu"
-            ? ["Hmm, más app...", "Szünet?"]
-            : ["Hmm, different app...", "Taking a break?"]
+            ? ["Hmm, más app...", "Szünet?", "Vissza jössz kódolni?",
+               "Oké, de ne felejtsd a kódot!", "Rövid kitérő?"]
+            : ["Hmm, different app...", "Taking a break?", "Coming back to code?",
+               "OK but don't forget the code!", "Quick detour?"]
     }
 
     // MARK: - File System Events
 
     static var fsCodingStorm: [String] {
         current == "hu"
-            ? ["Kódvihar!!!", "Ennyi fájl egyszerre?!", "Őrült tempó!"]
-            : ["Coding storm!!!", "So many files!", "Wild pace!"]
+            ? ["Kódvihar!!!", "Ennyi fájl egyszerre?!", "Őrült tempó!",
+               "Whoa, ez refaktor?!", "Vihar a könyvtárban!",
+               "Mindenütt változások!", "Valaki szorgalmas!"]
+            : ["Coding storm!!!", "So many files!", "Wild pace!",
+               "Whoa, refactoring?!", "Storm in the codebase!",
+               "Changes everywhere!", "Someone's busy!"]
     }
 
     static var fsLotsOfChanges: [String] {
         current == "hu"
-            ? ["Sok változás!", "Aktív kódolás!", "Jól megy!"]
-            : ["Lots of changes!", "Active coding!", "Going strong!"]
+            ? ["Sok változás!", "Aktív kódolás!", "Jól megy!",
+               "Haladunk!", "Jó tempó!", "Többfájlos szerkesztés!",
+               "Rendesen benne vagy!"]
+            : ["Lots of changes!", "Active coding!", "Going strong!",
+               "Making progress!", "Good pace!", "Multi-file editing!",
+               "Really in the zone!"]
     }
 
     static var fsFileActivity: [String] {
         current == "hu"
-            ? ["Fájl változás!", "Mentés!", "*figyel*"]
-            : ["File changed!", "Saved!", "*watching*"]
+            ? ["Fájl változás!", "Mentés!", "*figyel*",
+               "Módosítás megtörtént.", "Katt, mentve!",
+               "Láttam, szerkesztettél~"]
+            : ["File changed!", "Saved!", "*watching*",
+               "Modification noted.", "Click, saved!",
+               "I saw you edited~"]
     }
 
     // MARK: - Claude Code Hook Events
 
     static var hookSessionStart: [String] {
         current == "hu"
-            ? ["Claude Code elindult!", "Új session!", "Hali, Claude!"]
-            : ["Claude Code started!", "New session!", "Hi Claude!"]
+            ? ["Claude Code elindult!", "Új session!", "Hali, Claude!",
+               "Megjött a segítség!", "Claude a színen!",
+               "AI társprogramozó kész!", "Munkamenet indul!"]
+            : ["Claude Code started!", "New session!", "Hi Claude!",
+               "Help has arrived!", "Claude on the scene!",
+               "AI pair programmer ready!", "Session starting!"]
     }
 
     static var hookSessionEnd: [String] {
         current == "hu"
-            ? ["Session vége!", "Claude Code kész.", "Viszlát, Claude!"]
-            : ["Session ended!", "Claude Code done.", "Bye Claude!"]
+            ? ["Session vége!", "Claude Code kész.", "Viszlát, Claude!",
+               "Session befejezve!", "Claude kijelentkezik~",
+               "Szép munka volt!"]
+            : ["Session ended!", "Claude Code done.", "Bye Claude!",
+               "Session complete!", "Claude signing off~",
+               "Good work today!"]
     }
 
     static var hookRunningTests: [String] {
         current == "hu"
-            ? ["Tesztek futnak!", "Teszt idő!", "Szorítok a zöld teszteknek!"]
-            : ["Running tests!", "Test time!", "Fingers crossed for green!"]
+            ? ["Tesztek futnak!", "Teszt idő!", "Szorítok a zöldnek!",
+               "Vajon átmegy?", "Jöjjenek a tesztek!",
+               "CI energia... *szorít*", "Minden zöld lesz? 🤞"]
+            : ["Running tests!", "Test time!", "Fingers crossed!",
+               "Will it pass?", "Bring on the tests!",
+               "CI vibes... *crossing fingers*", "All green? 🤞"]
     }
 
     static var hookBuilding: [String] {
         current == "hu"
-            ? ["Build folyamatban!", "Fordítás...", "Építünk!"]
-            : ["Building!", "Compiling...", "Let's build!"]
+            ? ["Build folyamatban!", "Fordítás...", "Építünk!",
+               "Kompájlolunk...", "Mehet a build!",
+               "Remélem nincs hiba...", "Fordítás indul..."]
+            : ["Building!", "Compiling...", "Let's build!",
+               "Compiling away...", "Build initiated!",
+               "Hope there are no errors...", "Compilation started..."]
     }
 
     static var hookRunningCommand: [String] {
         current == "hu"
-            ? ["Parancs fut!", "Terminal aktivitás!", "*gépelés*"]
-            : ["Running command!", "Terminal activity!", "*typing*"]
+            ? ["Parancs fut!", "Terminal aktivitás!", "*gépelés*",
+               "Valami fut a terminálban~", "Shell parancs!",
+               "Lássuk mit csinál...", "Terminál munka!"]
+            : ["Running command!", "Terminal activity!", "*typing*",
+               "Something's running in terminal~", "Shell command!",
+               "Let's see what it does...", "Terminal work!"]
     }
 
     static var hookWritingCode: [String] {
         current == "hu"
-            ? ["Claude kódot ír!", "Kód készül!", "AI kódolás!"]
-            : ["Claude is writing code!", "Code incoming!", "AI coding!"]
+            ? ["Claude kódot ír!", "Kód készül!", "AI kódolás!",
+               "Fájl szerkesztés!", "Nézzük mit ír...",
+               "Kód generálás folyamatban~", "Claude dolgozik a kódon!",
+               "Új sorok születnek!"]
+            : ["Claude is writing code!", "Code incoming!", "AI coding!",
+               "File being edited!", "Let's see what it writes...",
+               "Code generation in progress~", "Claude working on code!",
+               "New lines being born!"]
+    }
+
+    // MARK: - Hatch / Reroll Greeting
+
+    static func hatchGreeting(name: String, species: String, rarity: String) -> String {
+        let rarityStr = current == "hu" ? "Ritkaság: \(rarity)" : "Rarity: \(rarity)"
+        return current == "hu"
+            ? "Szia! \(name) vagyok, egy \(species)! \(rarityStr)"
+            : "Hi! I'm \(name), a \(species)! \(rarityStr)"
+    }
+
+    static var hatchWelcome: [String] {
+        current == "hu"
+            ? ["Örülök hogy találkoztunk!", "Kódoljunk együtt!", "Készen állok!",
+               "Új kaland kezdődik!", "Vigyázok rád kódolás közben~"]
+            : ["Nice to meet you!", "Let's code together!", "I'm ready!",
+               "A new adventure begins!", "I'll watch over you while you code~"]
     }
 
     // MARK: - Menu Strings
