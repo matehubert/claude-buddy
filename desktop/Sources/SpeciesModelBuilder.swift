@@ -372,32 +372,56 @@ class SpeciesModelBuilder {
     // MARK: - Blob
 
     private func buildBlob(shiny: Bool) -> SpeciesModel {
+        // 🫧 emoji style: cute squishy blob with highlights
         let root = SCNNode()
-        let bodyColor = shiny ? NSColor.systemPink : NSColor(red: 0.6, green: 0.8, blue: 1.0, alpha: 1.0)
+        let bodyColor = shiny ? NSColor.systemPink : NSColor(red: 0.55, green: 0.78, blue: 1.0, alpha: 1.0)
 
+        // Main body — slightly squished sphere
         let body = SCNSphere(radius: 0.55)
-        body.firstMaterial = mat(bodyColor, shiny: shiny)
+        let bodyMat = mat(bodyColor, shiny: shiny)
+        bodyMat.roughness.contents = 0.5  // Slightly glossier for blob look
+        body.firstMaterial = bodyMat
         let bodyNode = SCNNode(geometry: body)
-        bodyNode.position = SCNVector3(0, 0.5, 0)
+        bodyNode.position = SCNVector3(0, 0.45, 0)
         bodyNode.scale = SCNVector3(1.0, 0.85, 0.9)
         root.addChildNode(bodyNode)
 
-        let headNode = bodyNode // blob is all one piece
+        let headNode = bodyNode
 
-        let leftEye = buildEye(radius: 0.08)
-        leftEye.position = SCNVector3(-0.18, 0.6, 0.42)
+        // Shine highlight — small white sphere on top-left
+        let highlight = SCNSphere(radius: 0.1)
+        let hlMat = SCNMaterial()
+        hlMat.diffuse.contents = NSColor(white: 1.0, alpha: 0.6)
+        hlMat.emission.contents = NSColor(white: 0.5, alpha: 1.0)
+        highlight.firstMaterial = hlMat
+        let hlNode = SCNNode(geometry: highlight)
+        hlNode.position = SCNVector3(-0.2, 0.75, 0.3)
+        root.addChildNode(hlNode)
+
+        // Small puddle/base for grounding
+        let base = SCNCylinder(radius: 0.35, height: 0.04)
+        let baseMat = mat(bodyColor, shiny: shiny)
+        baseMat.transparency = 0.4
+        base.firstMaterial = baseMat
+        let baseNode = SCNNode(geometry: base)
+        baseNode.position = SCNVector3(0, 0.02, 0)
+        root.addChildNode(baseNode)
+
+        let leftEye = buildEye(radius: 0.09)
+        leftEye.position = SCNVector3(-0.18, 0.55, 0.42)
         root.addChildNode(leftEye)
 
-        let rightEye = buildEye(radius: 0.08)
-        rightEye.position = SCNVector3(0.18, 0.6, 0.42)
+        let rightEye = buildEye(radius: 0.09)
+        rightEye.position = SCNVector3(0.18, 0.55, 0.42)
         root.addChildNode(rightEye)
 
-        // Mouth
-        let mouth = SCNCylinder(radius: 0.08, height: 0.01)
-        mouth.firstMaterial = mat(NSColor(red: 0.8, green: 0.4, blue: 0.4, alpha: 1.0), shiny: shiny)
+        // Mouth — small happy curve
+        let mouth = SCNTorus(ringRadius: 0.06, pipeRadius: 0.015)
+        mouth.firstMaterial = mat(NSColor(red: 0.85, green: 0.35, blue: 0.45, alpha: 1.0), shiny: shiny)
         let mouthNode = SCNNode(geometry: mouth)
-        mouthNode.position = SCNVector3(0, 0.42, 0.48)
+        mouthNode.position = SCNVector3(0, 0.38, 0.46)
         mouthNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
+        mouthNode.scale = SCNVector3(1.0, 1.0, 0.5)  // Flatten to semi-circle
         root.addChildNode(mouthNode)
 
         return SpeciesModel(
@@ -718,54 +742,75 @@ class SpeciesModelBuilder {
     // MARK: - Ghost
 
     private func buildGhost(shiny: Bool) -> SpeciesModel {
+        // 👻 emoji style: opaque white, round head, playful face, wavy bottom tail
         let root = SCNNode()
-        let bodyColor = shiny ? NSColor(red: 0.7, green: 0.9, blue: 1.0, alpha: 0.8) : NSColor(white: 0.95, alpha: 0.85)
+        let ghostWhite = shiny ? NSColor(red: 0.85, green: 0.95, blue: 1.0, alpha: 1.0) : NSColor(white: 0.97, alpha: 1.0)
 
-        // Body - elongated sphere
-        let body = SCNCapsule(capRadius: 0.4, height: 0.7)
-        let bodyMat = mat(bodyColor, shiny: shiny)
-        bodyMat.transparency = 0.85
+        // Round head — big sphere like the emoji
+        let head = SCNSphere(radius: 0.45)
+        let headMat = mat(ghostWhite, shiny: shiny)
+        headMat.emission.contents = NSColor(white: 0.15, alpha: 1.0)  // Subtle glow
+        head.firstMaterial = headMat
+        let headNode = SCNNode(geometry: head)
+        headNode.position = SCNVector3(0, 0.75, 0)
+        root.addChildNode(headNode)
+
+        // Body — tapers down from head, like the emoji drape
+        let body = SCNCapsule(capRadius: 0.38, height: 0.5)
+        let bodyMat = mat(ghostWhite, shiny: shiny)
+        bodyMat.emission.contents = NSColor(white: 0.15, alpha: 1.0)
         body.firstMaterial = bodyMat
         let bodyNode = SCNNode(geometry: body)
-        bodyNode.position = SCNVector3(0, 0.5, 0)
+        bodyNode.position = SCNVector3(0, 0.35, 0)
         root.addChildNode(bodyNode)
 
-        let headNode = bodyNode
-
-        // Wavy bottom
-        for i in 0..<5 {
-            let wave = SCNCone(topRadius: 0.08, bottomRadius: 0, height: 0.15)
-            let waveMat = mat(bodyColor, shiny: shiny)
-            waveMat.transparency = 0.85
+        // Wavy bottom — 3 fat rounded waves like emoji tail
+        let wavePositions: [(Float, Float)] = [(-0.22, 0.0), (0.0, -0.04), (0.22, 0.0)]
+        for (x, yOff) in wavePositions {
+            let wave = SCNSphere(radius: 0.14)
+            let waveMat = mat(ghostWhite, shiny: shiny)
+            waveMat.emission.contents = NSColor(white: 0.15, alpha: 1.0)
             wave.firstMaterial = waveMat
             let wNode = SCNNode(geometry: wave)
-            let x = Float(i - 2) * 0.15
-            wNode.position = SCNVector3(x, 0.05, 0)
-            wNode.eulerAngles = SCNVector3(Float.pi, 0, 0)
+            wNode.position = SCNVector3(x, 0.05 + yOff, 0)
+            wNode.scale = SCNVector3(1.0, 1.3, 0.8)
             root.addChildNode(wNode)
         }
 
-        let leftEye = buildEye(radius: 0.08, pupilColor: .black)
-        leftEye.position = SCNVector3(-0.15, 0.65, 0.35)
+        // Arms — stubby rounded like emoji hands
+        for xSign: Float in [-1, 1] {
+            let arm = SCNSphere(radius: 0.12)
+            let armMat = mat(ghostWhite, shiny: shiny)
+            armMat.emission.contents = NSColor(white: 0.15, alpha: 1.0)
+            arm.firstMaterial = armMat
+            let armNode = SCNNode(geometry: arm)
+            armNode.position = SCNVector3(xSign * 0.42, 0.5, 0.15)
+            armNode.scale = SCNVector3(0.8, 1.0, 0.6)
+            root.addChildNode(armNode)
+        }
+
+        // Dark expressive eyes — big, like the emoji
+        let leftEye = buildEye(radius: 0.1, pupilColor: NSColor(white: 0.1, alpha: 1.0))
+        leftEye.position = SCNVector3(-0.16, 0.82, 0.36)
         root.addChildNode(leftEye)
 
-        let rightEye = buildEye(radius: 0.08, pupilColor: .black)
-        rightEye.position = SCNVector3(0.15, 0.65, 0.35)
+        let rightEye = buildEye(radius: 0.1, pupilColor: NSColor(white: 0.1, alpha: 1.0))
+        rightEye.position = SCNVector3(0.16, 0.82, 0.36)
         root.addChildNode(rightEye)
 
-        // Mouth - O shape
-        let mouth = SCNTorus(ringRadius: 0.06, pipeRadius: 0.015)
-        mouth.firstMaterial = mat(NSColor(white: 0.3, alpha: 1.0), shiny: shiny)
+        // Mouth — open O like emoji 👻
+        let mouth = SCNTorus(ringRadius: 0.09, pipeRadius: 0.025)
+        mouth.firstMaterial = mat(NSColor(white: 0.2, alpha: 1.0), shiny: shiny)
         let mouthNode = SCNNode(geometry: mouth)
-        mouthNode.position = SCNVector3(0, 0.48, 0.38)
+        mouthNode.position = SCNVector3(0, 0.6, 0.4)
         mouthNode.eulerAngles = SCNVector3(Float.pi / 2, 0, 0)
         root.addChildNode(mouthNode)
 
         return SpeciesModel(
             rootNode: root, headNode: headNode,
             leftEyeNode: leftEye, rightEyeNode: rightEye,
-            mouthNode: mouthNode, hatAttachPoint: SCNVector3(0, 1.05, 0),
-            boundingHeight: 1.2
+            mouthNode: mouthNode, hatAttachPoint: SCNVector3(0, 1.22, 0),
+            boundingHeight: 1.3
         )
     }
 
