@@ -386,7 +386,7 @@ class BuddyData {
     }
 
     // Pet action via buddy.mjs
-    func pet(completion: @escaping (String?) -> Void) {
+    func pet(completion: @escaping (String?, StatGrowth?) -> Void) {
         DispatchQueue.global().async { [weak self] in
             guard let self = self else { return }
             let process = Process()
@@ -404,13 +404,13 @@ class BuddyData {
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
                 if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
                     DispatchQueue.main.async {
-                        completion(result.reaction)
+                        completion(result.reaction, result.statGrowth)
                     }
                 } else {
-                    DispatchQueue.main.async { completion(nil) }
+                    DispatchQueue.main.async { completion(nil, nil) }
                 }
             } catch {
-                DispatchQueue.main.async { completion(nil) }
+                DispatchQueue.main.async { completion(nil, nil) }
             }
         }
     }

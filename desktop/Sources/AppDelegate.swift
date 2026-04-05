@@ -80,6 +80,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         env.start()
 
+        // Stat Growth callback
+        MoodEnergySystem.shared.onStatGrowth = { [weak self] stat, amount in
+            self?.animationController.showReaction(BuddyL10n.statGrowth(stat: stat, amount: amount))
+        }
+
         // Pomodoro
         let pomo = PomodoroTimer.shared
         pomo.onTick = { [weak self] remaining, phase in
@@ -104,6 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pomo.onComplete = { [weak self] phase in
             if phase == .work {
                 self?.renderer.triggerParticleEffect(.confetti)
+                MoodEnergySystem.shared.incrementStat("PATIENCE", by: 2)
             }
         }
 
@@ -112,6 +118,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prod.onGitEvent = { [weak self] event in
             let msg = ProductivityMonitor.reactionForGitEvent(event)
             self?.animationController.showReaction(msg)
+            switch event {
+            case "commit":       MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 1)
+            case "conflict":     MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 2)
+            case "branch_switch": MoodEnergySystem.shared.incrementStat("CHAOS", by: 1)
+            default: break
+            }
         }
         prod.onClipboardEvent = { [weak self] event in
             let msg = ProductivityMonitor.reactionForClipboard(event)
@@ -126,6 +138,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         prod.onFileSystemEvent = { [weak self] intensity in
             let msg = ProductivityMonitor.reactionForFSEvent(intensity)
             self?.animationController.showReaction(msg)
+            switch intensity {
+            case "coding_storm":    MoodEnergySystem.shared.incrementStat("PATIENCE", by: 2)
+            case "lots_of_changes": MoodEnergySystem.shared.incrementStat("PATIENCE", by: 1)
+            default: break
+            }
         }
         prod.onClaudeCodeEvent = { [weak self] category, detail in
             let msg = ProductivityMonitor.reactionForHookEvent(category, detail: detail)
@@ -789,13 +806,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         animationController.triggerPetBounce()
         MoodEnergySystem.shared.pet()
 
-        BuddyData.shared.pet { [weak self] reaction in
-            if let text = reaction {
-                self?.animationController.showReaction(text)
-            } else {
-                let text = BuddyL10n.petDefaults.randomElement() ?? "♥"
-                self?.animationController.showReaction(text)
+        BuddyData.shared.pet { [weak self] reaction, statGrowth in
+            var text = reaction ?? BuddyL10n.petDefaults.randomElement() ?? "♥"
+            if let sg = statGrowth {
+                text += "\n" + BuddyL10n.statGrowth(stat: sg.stat, amount: sg.amount)
             }
+            self?.animationController.showReaction(text)
         }
     }
 
@@ -1013,5 +1029,6 @@ extension AppDelegate: MiniGameDelegate {
 
     func gameOnComplete(game: String, score: Int) {
         MoodEnergySystem.shared.play()
+        MoodEnergySystem.shared.incrementStat("CHAOS", by: 1)
     }
 }

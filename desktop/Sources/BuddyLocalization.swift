@@ -427,6 +427,12 @@ enum BuddyL10n {
                "New lines being born!"]
     }
 
+    // MARK: - Stat Growth
+
+    static func statGrowth(stat: String, amount: Int) -> String {
+        current == "hu" ? "📈 \(stat) +\(amount)!" : "📈 \(stat) +\(amount)!"
+    }
+
     // MARK: - Hatch / Reroll Greeting
 
     static func hatchGreeting(name: String, species: String, rarity: String) -> String {

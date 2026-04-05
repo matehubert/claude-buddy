@@ -20,6 +20,7 @@ class MoodEnergySystem {
     var onMoodChange: ((BuddyMood) -> Void)?
     var onEnergyChange: ((Int) -> Void)?
     var onAchievement: ((String) -> Void)?
+    var onStatGrowth: ((String, Int) -> Void)?
 
     private init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -188,6 +189,7 @@ class MoodEnergySystem {
         if streak >= 7 && !achievements.contains("streak_7") {
             achievements.append("streak_7")
             newAchievements.append("Week Streak (7 days)")
+            incrementStat("WISDOM", by: 3)
         }
         if streak >= 30 && !achievements.contains("streak_30") {
             achievements.append("streak_30")
@@ -249,6 +251,35 @@ class MoodEnergySystem {
     private func writeJSON(_ json: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else { return }
         try? data.write(to: URL(fileURLWithPath: soulPath))
+    }
+
+    // MARK: - Stat Growth
+
+    func incrementStat(_ stat: String, by amount: Int) {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let script = "\(home)/.claude/skills/buddy/buddy.mjs"
+
+        DispatchQueue.global().async { [weak self] in
+            let process = Process()
+            let pipe = Pipe()
+            let cmd = nodeArgs(script: script, args: ["increment-stat", stat, String(amount)])
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let actual = json["actual"] as? Int, actual > 0 {
+                    DispatchQueue.main.async {
+                        self?.onStatGrowth?(stat, actual)
+                    }
+                }
+            } catch {}
+        }
     }
 
     /// Export state as JSON for terminal commands
