@@ -333,11 +333,12 @@ function renderSprite(bones) {
   return lines;
 }
 
-function renderStatBar(name, value) {
+function renderStatBar(name, value, bonus = 0) {
   const barWidth = 16;
   const filled = Math.round((value / 100) * barWidth);
   const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
-  return `${name.padEnd(10)} [${bar}] ${String(value).padStart(3)}`;
+  const bonusStr = bonus > 0 ? ` (+${bonus})` : '';
+  return `${name.padEnd(10)} [${bar}] ${String(value).padStart(3)}${bonusStr}`;
 }
 
 function capitalize(s) {
@@ -370,11 +371,61 @@ function renderCard(bones, soul) {
   lines.push('\u2551' + ' '.repeat(w) + '\u2551');
 
   for (const sn of STAT_NAMES) {
-    const bar = renderStatBar(sn, bones.stats[sn]);
+    const bonus = (soul.statBonuses && soul.statBonuses[sn]) || 0;
+    const total = Math.min(100, bones.stats[sn] + bonus);
+    const bar = renderStatBar(sn, total, bonus);
     lines.push('\u2551  ' + bar.padEnd(w - 3) + ' \u2551');
+    const hint = '     \u2514 ' + STAT_HINTS[sn];
+    lines.push('\u2551  ' + hint.padEnd(w - 3) + ' \u2551');
   }
 
   lines.push('\u255A' + '\u2550'.repeat(w) + '\u255D');
+  return lines.join('\n');
+}
+
+const STAT_HINTS = {
+  DEBUGGING: 'commits \u00B7 tests',
+  PATIENCE:  'builds \u00B7 pomodoro \u00B7 file storms',
+  CHAOS:     'branch switches \u00B7 games',
+  WISDOM:    'writing code \u00B7 sessions',
+  SNARK:     'petting your buddy'
+};
+
+const STAT_EMOJI = {
+  DEBUGGING: '\uD83D\uDC1B',
+  PATIENCE:  '\u23F3',
+  CHAOS:     '\uD83C\uDF00',
+  WISDOM:    '\uD83E\uDDE0',
+  SNARK:     '\uD83D\uDE0F'
+};
+
+function renderCardMarkdown(bones, soul) {
+  const stars = RARITY_STARS[bones.rarity];
+  const shinyTag = bones.shiny ? ' \u2728 **SHINY**' : '';
+  const sprite = renderSprite(bones);
+
+  const lines = [];
+  lines.push(`## ${soul.name}`);
+  lines.push(`> ${stars} ${capitalize(bones.rarity)} ${capitalize(bones.species)}${shinyTag} \u00B7 Hatched: ${soul.hatchDate}`);
+  lines.push('');
+  lines.push('```');
+  lines.push(...sprite);
+  lines.push('```');
+  lines.push('');
+
+  for (const sn of STAT_NAMES) {
+    const bonus = (soul.statBonuses && soul.statBonuses[sn]) || 0;
+    const total = Math.min(100, bones.stats[sn] + bonus);
+    const barWidth = 16;
+    const filled = Math.round((total / 100) * barWidth);
+    const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(barWidth - filled);
+    const bonusStr = bonus > 0 ? ` (+${bonus})` : '';
+    const emoji = STAT_EMOJI[sn];
+    lines.push(`${emoji} **${sn}** \`${bar}\` **${total}**${bonusStr}`);
+    lines.push(`*${STAT_HINTS[sn]}*`);
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
@@ -446,44 +497,40 @@ function updateSoul(updates) {
   return updated;
 }
 
+// ─── Stat Growth System ─────────────────────────────────────────────────────
+
+const DAILY_STAT_CAP = 5;
+
+function incrementStat(stat, amount) {
+  const soul = readSoul();
+  if (!soul) return 0;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  if (!soul.statBonuses) soul.statBonuses = {};
+  if (!soul.dailyStatGains) soul.dailyStatGains = {};
+  if (soul.lastStatResetDate !== today) {
+    soul.dailyStatGains = {};
+    soul.lastStatResetDate = today;
+  }
+
+  const todayGain = soul.dailyStatGains[stat] || 0;
+  const allowed = Math.min(amount, DAILY_STAT_CAP - todayGain);
+  if (allowed <= 0) return 0;
+
+  soul.statBonuses[stat] = (soul.statBonuses[stat] || 0) + allowed;
+  soul.dailyStatGains[stat] = todayGain + allowed;
+
+  writeSoul(soul);
+  return allowed;
+}
+
 // ─── Buddy React API ─────────────────────────────────────────────────────
 
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const REFRESH_URL = 'https://platform.claude.com/v1/oauth/token';
+const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const SCOPES = 'user:profile user:inference user:sessions:claude_code user:mcp_servers';
-
-/** Resolve OAuth client ID from Claude Code binary (never hardcoded). */
-function resolveClientId() {
-  // 1. Check cached config
-  const configPath = join(homedir(), '.claude', 'buddy-config.json');
-  try {
-    const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
-    if (cfg.clientId) return cfg.clientId;
-  } catch {}
-
-  // 2. Extract from Claude Code binary
-  try {
-    const claudePath = execSync('readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null', {
-      encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe']
-    }).trim();
-    if (claudePath) {
-      const output = execSync(
-        `strings "${claudePath}" | grep -o 'https://platform\\.claude\\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1`,
-        { encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-      const match = output.match(/CLIENT_ID:"([0-9a-f-]+)"/);
-      if (match) {
-        // Cache for future use
-        try { writeFileSync(configPath, JSON.stringify({ clientId: match[1] }, null, 2)); } catch {}
-        return match[1];
-      }
-    }
-  } catch {}
-
-  return null;
-}
-
-const CLIENT_ID = resolveClientId();
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const REACT_HISTORY_PATH = join(homedir(), '.claude', 'buddy-history.json');
 
@@ -704,7 +751,8 @@ async function main() {
         console.log(JSON.stringify({ action: 'not_hatched' }));
       } else {
         const rendered = renderCard(bones, soul);
-        console.log(JSON.stringify({ action: 'card', bones, soul, rendered }));
+        const renderedMarkdown = renderCardMarkdown(bones, soul);
+        console.log(JSON.stringify({ action: 'card', bones, soul, rendered, renderedMarkdown }));
       }
       break;
     }
@@ -715,8 +763,10 @@ async function main() {
         console.log(JSON.stringify({ action: 'not_hatched' }));
       } else {
         const rendered = renderPet(bones, soul);
+        const statGrew = incrementStat('SNARK', 1);
         const reaction = await callBuddyReact(bones, soul, 'pet', transcript);
-        console.log(JSON.stringify({ action: 'pet', bones, soul, rendered, reaction }));
+        const statGrowth = statGrew > 0 ? { stat: 'SNARK', amount: statGrew } : null;
+        console.log(JSON.stringify({ action: 'pet', bones, soul, rendered, reaction, statGrowth }));
       }
       break;
     }
@@ -868,15 +918,30 @@ async function main() {
         } else {
           const elapsed = Date.now() - pomo.startedAt;
           const remaining = Math.max(0, (pomo.duration || 25 * 60 * 1000) - elapsed);
-          const mins = Math.floor(remaining / 60000);
-          const secs = Math.floor((remaining % 60000) / 1000);
-          console.log(JSON.stringify({
-            action: 'pomodoro',
-            status: 'running',
-            phase: pomo.phase,
-            remaining: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
-            completedPomodoros: pomo.completedPomodoros || 0
-          }));
+          if (remaining <= 0) {
+            // Pomodoro completed!
+            pomo.phase = 'idle';
+            pomo.completedPomodoros = (pomo.completedPomodoros || 0) + 1;
+            writePomo(pomo);
+            const statGrew = incrementStat('PATIENCE', 2);
+            const statGrowth = statGrew > 0 ? { stat: 'PATIENCE', amount: statGrew } : null;
+            console.log(JSON.stringify({
+              action: 'pomodoro',
+              status: 'completed',
+              completedPomodoros: pomo.completedPomodoros,
+              statGrowth
+            }));
+          } else {
+            const mins = Math.floor(remaining / 60000);
+            const secs = Math.floor((remaining % 60000) / 1000);
+            console.log(JSON.stringify({
+              action: 'pomodoro',
+              status: 'running',
+              phase: pomo.phase,
+              remaining: `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+              completedPomodoros: pomo.completedPomodoros || 0
+            }));
+          }
         }
       }
       break;
@@ -896,13 +961,16 @@ async function main() {
         ];
         const q = questions[Math.floor(Math.random() * questions.length)];
         const playCount = (soul.playCount ?? 0) + 1;
+        const statGrew = incrementStat('CHAOS', 1);
         updateSoul({ playCount, lastInteraction: Date.now() / 1000 });
+        const statGrowth = statGrew > 0 ? { stat: 'CHAOS', amount: statGrew } : null;
         console.log(JSON.stringify({
           action: 'game',
           type: 'trivia',
           question: q.q,
           answer: q.a,
           playCount,
+          statGrowth,
           rendered: `🎮 Trivia!\n\nQ: ${q.q}\nA: ${q.a}`
         }));
       }
@@ -1012,6 +1080,9 @@ async function main() {
           feedCount: 0,
           petCount: 0,
           playCount: 0,
+          statBonuses: {},
+          dailyStatGains: {},
+          lastStatResetDate: null,
           lastInteraction: Date.now() / 1000
         };
         writeSoul(newSoul);
@@ -1026,6 +1097,19 @@ async function main() {
           previousSpecies: bones.species,
           newSpecies: newBones.species
         }));
+      }
+      break;
+    }
+
+    case 'increment-stat': {
+      // Called by hooks: node buddy.mjs increment-stat STAT_NAME amount
+      const stat = args[1];
+      const amount = parseInt(args[2], 10) || 1;
+      if (!stat || !STAT_NAMES.includes(stat)) {
+        console.log(JSON.stringify({ action: 'invalid_stat', stat }));
+      } else {
+        const grew = incrementStat(stat, amount);
+        console.log(JSON.stringify({ action: 'stat_incremented', stat, requested: amount, actual: grew }));
       }
       break;
     }

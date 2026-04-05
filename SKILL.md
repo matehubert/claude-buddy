@@ -29,7 +29,9 @@ The buddy already exists. Show the `rendered` field and welcome the user back.
 
 ## Action: `card` (Stat card)
 
-Display the `rendered` field in a code block. It contains a pre-formatted stat card with borders, sprite, and stat bars. No additional formatting needed.
+ALWAYS use the `renderedMarkdown` field when it is present in the JSON output. Display it directly as markdown — do NOT wrap it in a code block. It contains formatted headers, sprite in a code block, inline code stat bars with emoji, bold values, and italic growth hints.
+
+Only fall back to the `rendered` field (in a code block) if `renderedMarkdown` is missing from the output.
 
 ## Action: `pet` (Pet interaction)
 
@@ -72,6 +74,34 @@ Confirm: "Your buddy has been [muted/unmuted]." For unmute, add a short buddy re
 ## Action: `hidden`
 
 Confirm: "Your buddy is now hidden. Run `/buddy` to bring them back."
+
+## Action: `eyes_list` (List available eyes)
+
+Show the available eye characters and which one is currently active. Mention `/buddy eyes <char>` to set, `/buddy eyes reset` to restore default.
+
+## Action: `eyes_set` (Eye changed)
+
+Show the updated sprite in a code block and confirm the new eyes. Add a playful in-character comment about the new look.
+
+## Action: `eyes_reset` (Eye reset to default)
+
+Show the sprite and confirm eyes restored to the original generated value.
+
+## Action: `hat_list` (List available hats)
+
+Show available hats with their preview lines. Mention `/buddy hat <name>` to set, `/buddy hat reset` to restore default. Available: none, crown, tophat, propeller, halo, wizard, beanie, tinyduck.
+
+## Action: `hat_set` (Hat changed)
+
+Show the updated sprite in a code block and confirm the new hat. Add a playful in-character reaction.
+
+## Action: `hat_reset` (Hat reset to default)
+
+Show the sprite and confirm hat restored to the original generated value.
+
+## Action: `hat_invalid` (Invalid hat name)
+
+Tell the user the hat name wasn't recognized and list available options.
 
 ## Rarity Celebrations
 
