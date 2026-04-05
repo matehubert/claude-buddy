@@ -120,15 +120,13 @@ class UsageViewController: NSViewController {
 
     private func applyViewMode() {
         if !isDetailMode {
-            // Overview: hide detail bars, keep fiveHourBar + today visible
+            // Overview: hide detail bars, keep fiveHourBar + today + extra visible
             sevenDayBar.isHidden = true
             opusBar.isHidden = true
             sonnetBar.isHidden = true
-            extraLabel.isHidden = true
         } else {
-            // Detail: restore extraLabel; bars are set by updateUI based on API data
+            // Detail: restore bars; updateUI sets opus/sonnet based on API data
             sevenDayBar.isHidden = false
-            extraLabel.isHidden = false
         }
 
         // Resize popover
