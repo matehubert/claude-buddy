@@ -21,6 +21,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Shake detection
     private var recentDragPositions: [(x: CGFloat, time: Date)] = []
 
+    // LLM rate limiter
+    private var llmCallTimestamps: [Date] = []
+    private let maxLLMCallsPerHour = 6
+
+    // Morning greeting & daily summary
+    private var hasGreetedToday = false
+    private var dailySummaryShownToday = false
+    private var dailySummaryTimer: Timer?
+
     private let eyes = ["·", "✦", "×", "◉", "@", "°", "♥", "★", "◆", "~", "^", "ˇ"]
     private let hats = ["none", "crown", "tophat", "propeller", "halo", "wizard", "beanie", "tinyduck"]
 
@@ -65,6 +74,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         buddyPanel.savePosition()
         MoodEnergySystem.shared.saveToDisk()
+        dailySummaryTimer?.invalidate()
     }
 
     // MARK: - System Setup
@@ -88,10 +98,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.animationController.applyEnvironment()
         }
         env.onWeatherChange = { [weak self] weather in
-            self?.animationController.applyEnvironment()
-            if weather == "rain" {
-                self?.animationController.showReaction(BuddyL10n.itsRaining)
-            }
+            guard let self = self else { return }
+            self.animationController.applyEnvironment()
+            // LLM reaction for weather change
+            let ctx = self.buildContext(eventDetail: "weather just changed to \(weather)")
+            self.reactWithLLM(reason: "weather_change", context: ctx,
+                              fallback: weather == "rain" ? BuddyL10n.itsRaining : BuddyL10n.moodContent.randomElement()!)
         }
         env.start()
 
@@ -128,31 +140,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Productivity Monitor
+        // Productivity Monitor — hybrid LLM/static routing
         let prod = ProductivityMonitor.shared
         prod.onGitEvent = { [weak self] event in
-            let msg = ProductivityMonitor.reactionForGitEvent(event)
-            self?.animationController.showReaction(msg)
+            guard let self = self else { return }
+            DailyActivityLog.shared.logEvent(event)
             switch event {
-            case "commit":       MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 1)
-            case "conflict":     MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 2)
-            case "branch_switch": MoodEnergySystem.shared.incrementStat("CHAOS", by: 1)
-            default: break
+            case "commit":
+                // LLM reaction with context
+                MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 1)
+                let ctx = self.buildContext(eventDetail: "user just committed code")
+                self.reactWithLLM(reason: "commit", context: ctx,
+                                  fallback: BuddyL10n.gitCommit.randomElement()!)
+            case "conflict":
+                MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 2)
+                self.animationController.showReaction(BuddyL10n.gitConflict.randomElement()!)
+            case "branch_switch":
+                MoodEnergySystem.shared.incrementStat("CHAOS", by: 1)
+                self.animationController.showReaction(BuddyL10n.gitBranchSwitch.randomElement()!)
+            default:
+                self.animationController.showReaction(ProductivityMonitor.reactionForGitEvent(event))
             }
         }
         prod.onClipboardEvent = { [weak self] event in
+            // Static — no LLM
             let msg = ProductivityMonitor.reactionForClipboard(event)
             if !msg.isEmpty {
                 self?.animationController.showReaction(msg)
             }
         }
         prod.onActiveWindowEvent = { [weak self] category, appName in
+            // Static — no LLM
             let msg = ProductivityMonitor.reactionForWindowEvent(category, appName: appName)
             self?.animationController.showReaction(msg)
         }
         prod.onFileSystemEvent = { [weak self] intensity in
+            guard let self = self else { return }
+            DailyActivityLog.shared.logEvent(intensity)
+            // Static — no LLM
             let msg = ProductivityMonitor.reactionForFSEvent(intensity)
-            self?.animationController.showReaction(msg)
+            self.animationController.showReaction(msg)
             switch intensity {
             case "coding_storm":    MoodEnergySystem.shared.incrementStat("PATIENCE", by: 2)
             case "lots_of_changes": MoodEnergySystem.shared.incrementStat("PATIENCE", by: 1)
@@ -160,9 +187,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         prod.onClaudeCodeEvent = { [weak self] category, detail in
-            let msg = ProductivityMonitor.reactionForHookEvent(category, detail: detail)
-            if !msg.isEmpty {
-                self?.animationController.showReaction(msg)
+            guard let self = self else { return }
+            switch category {
+            case "session_start":
+                // LLM reaction with context
+                DailyActivityLog.shared.logEvent("session_start")
+                let ctx = self.buildContext(eventDetail: "Claude Code session started")
+                self.reactWithLLM(reason: "session_start", context: ctx,
+                                  fallback: BuddyL10n.hookSessionStart.randomElement()!)
+            case "writing_code":
+                // LLM reaction with context
+                let detail_text = (!detail.isEmpty && detail != "Write" && detail != "Edit") ? "Claude writing \(detail)" : "Claude writing code"
+                let ctx = self.buildContext(eventDetail: detail_text)
+                self.reactWithLLM(reason: "writing_code", context: ctx,
+                                  fallback: BuddyL10n.hookWritingCode.randomElement()!)
+            default:
+                // Static for other hook events
+                let msg = ProductivityMonitor.reactionForHookEvent(category, detail: detail)
+                if !msg.isEmpty {
+                    self.animationController.showReaction(msg)
+                }
             }
         }
         prod.start()
@@ -171,10 +215,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let games = MiniGameManager.shared
         games.delegate = self
 
+        // Daily summary timer (check every 5 min)
+        dailySummaryTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.checkDailySummary()
+        }
+
         // Apply initial environment
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.animationController.applyEnvironment()
             self?.animationController.applyMood()
+        }
+    }
+
+    private func checkDailySummary() {
+        let hour = Calendar.current.component(.hour, from: Date())
+        guard hour >= 18, hour < 19, !dailySummaryShownToday else { return }
+        guard let soul = BuddyData.shared.soul, !soul.muted, !soul.hidden else { return }
+
+        dailySummaryShownToday = true
+        var ctx = buildContext(eventDetail: "end of day summary")
+        ctx["dailySummary"] = DailyActivityLog.shared.dailySummaryText()
+
+        if canCallLLM() {
+            recordLLMCall()
+            BuddyData.shared.react(reason: "daily_summary", context: ctx) { [weak self] reaction in
+                let text = reaction ?? "Today: \(DailyActivityLog.shared.dailySummaryText())"
+                self?.speechBubble.show(text: text, duration: 10.0)
+            }
+        } else {
+            speechBubble.show(text: "Today: \(DailyActivityLog.shared.dailySummaryText())", duration: 10.0)
         }
     }
 
@@ -553,10 +622,70 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let data = BuddyData.shared
         guard let soul = data.soul, !soul.muted, !soul.hidden else { return }
 
-        data.react { [weak self] reaction in
-            if let text = reaction {
-                self?.animationController.showReaction(text)
-            }
+        // Morning greeting (once per app launch)
+        if !hasGreetedToday {
+            hasGreetedToday = true
+            let ctx = buildContext(eventDetail: "app just launched, greet the user")
+            reactWithLLM(reason: "morning_greeting", context: ctx, fallback: BuddyL10n.moodHappy.randomElement()!)
+            return
+        }
+
+        // Regular periodic reaction (use LLM with context)
+        let ctx = buildContext(eventDetail: "periodic check-in")
+        reactWithLLM(reason: "turn", context: ctx, fallback: BuddyL10n.moodContent.randomElement()!)
+    }
+
+    // MARK: - LLM Rate Limiter
+
+    private func canCallLLM() -> Bool {
+        let now = Date()
+        llmCallTimestamps = llmCallTimestamps.filter { now.timeIntervalSince($0) < 3600 }
+        return llmCallTimestamps.count < maxLLMCallsPerHour
+    }
+
+    private func recordLLMCall() {
+        llmCallTimestamps.append(Date())
+    }
+
+    // MARK: - Context Builder
+
+    private func buildContext(eventDetail: String) -> [String: Any] {
+        let env = EnvironmentAwareness.shared
+        let mood = MoodEnergySystem.shared
+        let proj = ProductivityMonitor.shared.getProjectContext()
+
+        var ctx: [String: Any] = [
+            "weather": env.weather,
+            "timeOfDay": env.timeOfDay.rawValue,
+            "mood": mood.mood.rawValue,
+            "energy": mood.energy,
+            "eventDetail": eventDetail
+        ]
+        if let temp = env.temperature {
+            ctx["temperature"] = temp
+        }
+        if proj.directoryName != "unknown" {
+            ctx["project"] = proj.directoryName
+        }
+        if proj.gitBranch != "unknown" {
+            ctx["gitBranch"] = proj.gitBranch
+        }
+        if proj.detectedLanguage != "unknown" {
+            ctx["projectLanguage"] = proj.detectedLanguage
+        }
+        return ctx
+    }
+
+    // MARK: - Hybrid LLM/Static Reaction
+
+    private func reactWithLLM(reason: String, context: [String: Any], fallback: String) {
+        guard canCallLLM() else {
+            animationController.showReaction(fallback)
+            return
+        }
+        recordLLMCall()
+        BuddyData.shared.react(reason: reason, context: context) { [weak self] reaction in
+            self?.animationController.showReaction(reaction ?? fallback)
         }
     }
 

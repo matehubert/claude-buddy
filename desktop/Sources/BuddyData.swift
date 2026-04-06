@@ -451,12 +451,24 @@ class BuddyData {
 
     // React action via buddy.mjs
     func react(reason: String = "turn", completion: @escaping (String?) -> Void) {
+        react(reason: reason, context: [:], completion: completion)
+    }
+
+    // Context-aware react action via buddy.mjs
+    func react(reason: String, context: [String: Any], completion: @escaping (String?) -> Void) {
         DispatchQueue.global().async { [weak self] in
             guard let self = self else { return }
             let process = Process()
             let pipe = Pipe()
 
-            let cmd = nodeArgs(script: self.buddyMjsPath, args: ["react", reason])
+            var args = ["react", reason]
+            if !context.isEmpty,
+               let jsonData = try? JSONSerialization.data(withJSONObject: context),
+               let jsonStr = String(data: jsonData, encoding: .utf8) {
+                args.append(jsonStr)
+            }
+
+            let cmd = nodeArgs(script: self.buddyMjsPath, args: args)
             process.executableURL = URL(fileURLWithPath: cmd.executable)
             process.arguments = cmd.arguments
             process.standardOutput = pipe

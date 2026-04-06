@@ -772,14 +772,33 @@ async function main() {
     }
 
     case 'react': {
-      // Called by hooks to get a buddy reaction to coding activity
+      // Called by hooks/desktop to get a buddy reaction to coding activity
       const soul = readSoul();
       if (!soul || soul.muted || soul.hidden) {
         console.log(JSON.stringify({ action: 'silent' }));
       } else {
         const reason = args[1] || 'turn';
-        const ctx = args[2] || '';
-        const reaction = await callBuddyReact(bones, soul, reason, ctx);
+        const ctxRaw = args[2] || '';
+
+        // Build structured transcript from context JSON (or use as-is for backward compat)
+        let transcript = ctxRaw;
+        try {
+          const ctx = JSON.parse(ctxRaw);
+          const lines = [];
+          if (ctx.weather) lines.push(`Weather: ${ctx.weather}${ctx.temperature != null ? `, ${ctx.temperature}°C` : ''}`);
+          if (ctx.timeOfDay) lines.push(`Time: ${ctx.timeOfDay}`);
+          if (ctx.project) lines.push(`Project: ${ctx.project}`);
+          if (ctx.gitBranch) lines.push(`Branch: ${ctx.gitBranch}`);
+          if (ctx.projectLanguage) lines.push(`Language: ${ctx.projectLanguage}`);
+          if (ctx.mood) lines.push(`Buddy mood: ${ctx.mood}${ctx.energy != null ? `, energy: ${ctx.energy}%` : ''}`);
+          if (ctx.eventDetail) lines.push(`Event detail: ${ctx.eventDetail}`);
+          if (ctx.dailySummary) lines.push(`Daily activity: ${ctx.dailySummary}`);
+          if (lines.length > 0) transcript = lines.join('\n');
+        } catch {
+          // Not JSON — use as-is (backward compat)
+        }
+
+        const reaction = await callBuddyReact(bones, soul, reason, transcript);
         if (reaction) {
           const sprite = renderSprite(bones);
           console.log(JSON.stringify({ action: 'react', reaction, sprite: sprite.join('\n'), soul }));

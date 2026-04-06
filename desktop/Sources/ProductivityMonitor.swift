@@ -1,6 +1,119 @@
 import AppKit
 import CoreServices
 
+// MARK: - ProjectContext
+
+struct ProjectContext {
+    let directoryName: String
+    let gitBranch: String
+    let detectedLanguage: String
+
+    func toDict() -> [String: String] {
+        return [
+            "project": directoryName,
+            "gitBranch": gitBranch,
+            "projectLanguage": detectedLanguage
+        ]
+    }
+}
+
+// MARK: - DailyActivityLog
+
+class DailyActivityLog {
+    static let shared = DailyActivityLog()
+
+    private let logPath: String
+    private(set) var date: String = ""
+    private(set) var commitCount: Int = 0
+    private(set) var branchSwitches: Int = 0
+    private(set) var claudeSessionCount: Int = 0
+    private(set) var codingStorms: Int = 0
+    private(set) var firstActivityTime: String? = nil
+
+    private init() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        logPath = "\(home)/.claude/buddy-daily-log.json"
+        load()
+    }
+
+    func logEvent(_ event: String) {
+        checkDayReset()
+        if firstActivityTime == nil {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "HH:mm"
+            firstActivityTime = fmt.string(from: Date())
+        }
+        switch event {
+        case "commit": commitCount += 1
+        case "branch_switch": branchSwitches += 1
+        case "session_start": claudeSessionCount += 1
+        case "coding_storm": codingStorms += 1
+        default: break
+        }
+        save()
+    }
+
+    func dailySummaryText() -> String {
+        let parts: [String] = [
+            "\(commitCount) commit\(commitCount == 1 ? "" : "s")",
+            "\(claudeSessionCount) session\(claudeSessionCount == 1 ? "" : "s")",
+            firstActivityTime.map { "started at \($0)" } ?? ""
+        ].filter { !$0.isEmpty }
+        return parts.joined(separator: ", ")
+    }
+
+    private func checkDayReset() {
+        let today = todayString()
+        if date != today {
+            date = today
+            commitCount = 0
+            branchSwitches = 0
+            claudeSessionCount = 0
+            codingStorms = 0
+            firstActivityTime = nil
+        }
+    }
+
+    private func todayString() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: Date())
+    }
+
+    private func load() {
+        guard let data = FileManager.default.contents(atPath: logPath),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            date = todayString()
+            return
+        }
+        let savedDate = json["date"] as? String ?? ""
+        if savedDate == todayString() {
+            date = savedDate
+            commitCount = json["commitCount"] as? Int ?? 0
+            branchSwitches = json["branchSwitches"] as? Int ?? 0
+            claudeSessionCount = json["claudeSessionCount"] as? Int ?? 0
+            codingStorms = json["codingStorms"] as? Int ?? 0
+            firstActivityTime = json["firstActivityTime"] as? String
+        } else {
+            date = todayString()
+        }
+    }
+
+    private func save() {
+        let dict: [String: Any] = [
+            "date": date,
+            "commitCount": commitCount,
+            "branchSwitches": branchSwitches,
+            "claudeSessionCount": claudeSessionCount,
+            "codingStorms": codingStorms,
+            "firstActivityTime": firstActivityTime ?? ""
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: dict) {
+            try? data.write(to: URL(fileURLWithPath: logPath))
+        }
+    }
+}
+
 class ProductivityMonitor {
     static let shared = ProductivityMonitor()
 
@@ -62,6 +175,55 @@ class ProductivityMonitor {
 
         hookFileWatcher?.cancel()
         hookFileWatcher = nil
+    }
+
+    // MARK: - Project Context
+
+    func getProjectContext() -> ProjectContext {
+        let dirName: String
+        if let dir = watchedProjectDir {
+            dirName = (dir as NSString).lastPathComponent
+        } else {
+            dirName = "unknown"
+        }
+
+        var branch = "unknown"
+        if let gd = gitDir {
+            let headPath = "\(gd)/HEAD"
+            if let headContent = try? String(contentsOfFile: headPath, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) {
+                if headContent.hasPrefix("ref: refs/heads/") {
+                    branch = String(headContent.dropFirst("ref: refs/heads/".count))
+                } else if headContent.count >= 7 {
+                    branch = String(headContent.prefix(7))
+                }
+            }
+        }
+
+        let lang = detectProjectLanguage()
+        return ProjectContext(directoryName: dirName, gitBranch: branch, detectedLanguage: lang)
+    }
+
+    private func detectProjectLanguage() -> String {
+        guard let dir = watchedProjectDir else { return "unknown" }
+        let fm = FileManager.default
+        let checks: [(String, String)] = [
+            ("Package.swift", "Swift"),
+            ("package.json", "TypeScript/JavaScript"),
+            ("Cargo.toml", "Rust"),
+            ("go.mod", "Go"),
+            ("requirements.txt", "Python"),
+            ("pyproject.toml", "Python"),
+            ("Gemfile", "Ruby"),
+            ("pom.xml", "Java"),
+            ("build.gradle", "Kotlin/Java"),
+            ("CMakeLists.txt", "C/C++")
+        ]
+        for (file, language) in checks {
+            if fm.fileExists(atPath: "\(dir)/\(file)") {
+                return language
+            }
+        }
+        return "unknown"
     }
 
     // MARK: - Git Monitoring
