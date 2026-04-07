@@ -16,7 +16,7 @@ class UsageViewController: NSViewController {
     private var isDetailMode = false
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 280))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         container.wantsLayer = true
 
         stackView = NSStackView()
@@ -156,6 +156,14 @@ class UsageViewController: NSViewController {
         }
     }
 
+    private static func formatDollars(_ value: Double) -> String {
+        if value == value.rounded() {
+            return "$\(Int(value))"
+        } else {
+            return String(format: "$%.2f", value)
+        }
+    }
+
     @objc private func syncClicked() {
         syncButton.isEnabled = false
         syncButton.title = "..."
@@ -171,6 +179,7 @@ class UsageViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        applyViewMode()
         refreshUsage()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.refreshUsage()
@@ -253,7 +262,10 @@ class UsageViewController: NSViewController {
         if let extra = usage.extraUsage {
             if extra.isEnabled == true {
                 if let used = extra.usedCredits, let limit = extra.monthlyLimit {
-                    extraLabel.stringValue = String(format: "Extra usage: $%.2f / $%.2f", used, limit)
+                    // API returns values in cents — convert to dollars
+                    let usedDollars = used > 100 ? used / 100.0 : used
+                    let limitDollars = limit > 100 ? limit / 100.0 : limit
+                    extraLabel.stringValue = "Extra usage: \(Self.formatDollars(usedDollars)) / \(Self.formatDollars(limitDollars))"
                 } else {
                     extraLabel.stringValue = "Extra usage: enabled"
                 }
@@ -262,6 +274,11 @@ class UsageViewController: NSViewController {
             }
         } else {
             extraLabel.stringValue = ""
+        }
+
+        // Log raw extra usage values for debugging
+        if let extra = usage.extraUsage, let used = extra.usedCredits {
+            NSLog("[Buddy] Extra usage raw values — used: \(used), limit: \(extra.monthlyLimit ?? 0)")
         }
 
         // Today summary

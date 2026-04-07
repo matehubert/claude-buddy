@@ -132,7 +132,8 @@ class ProductivityMonitor {
     private var fsChangeCount: Int = 0
     private var fsBatchTimer: Timer?
     private var lastFSReactionTime: Date = .distantPast
-    private var watchedProjectDir: String?
+    private(set) var watchedProjectDir: String?
+    var currentProjectDir: String? { watchedProjectDir }
 
     // Claude Code hook monitoring
     private var hookFileWatcher: DispatchSourceFileSystemObject?

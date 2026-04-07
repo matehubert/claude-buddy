@@ -181,7 +181,74 @@ class SpeechBubbleView: NSView {
         triviaButtons.removeAll()
     }
 
+    // MARK: - Ask Buddy Input Mode
+
+    private var inputField: NSTextField?
+    private var inputCallback: ((String) -> Void)?
+
+    func showInput(placeholder: String, onSubmit: @escaping (String) -> Void) {
+        hideTimer?.invalidate()
+        countdownTimer?.invalidate()
+        removeTriviaButtons()
+        removeInput()
+        inputCallback = onSubmit
+
+        if homeFrame == .zero {
+            homeFrame = frame
+        }
+
+        // Expand bubble for input
+        var expanded = homeFrame
+        expanded.size.height = homeFrame.height + 30
+        expanded.origin.y = homeFrame.origin.y - 30
+        frame = expanded
+
+        textLabel.stringValue = "🤔 Ask Buddy..."
+        needsDisplay = true
+
+        let field = NSTextField(frame: NSRect(x: 10, y: expanded.height - 24, width: expanded.width - 20, height: 22))
+        field.placeholderString = placeholder
+        field.font = NSFont.systemFont(ofSize: 11)
+        field.bezelStyle = .roundedBezel
+        field.target = self
+        field.action = #selector(inputSubmitted(_:))
+        addSubview(field)
+        inputField = field
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.3
+            self.animator().alphaValue = 1.0
+        }
+
+        // Focus the field
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            field.window?.makeFirstResponder(field)
+        }
+    }
+
+    @objc private func inputSubmitted(_ sender: NSTextField) {
+        let text = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        let cb = inputCallback
+        inputCallback = nil
+        removeInput()
+
+        // Shrink back
+        if homeFrame != .zero {
+            frame = homeFrame
+            needsDisplay = true
+        }
+
+        cb?(text)
+    }
+
+    private func removeInput() {
+        inputField?.removeFromSuperview()
+        inputField = nil
+    }
+
     func hide() {
+        removeInput()
         hideTimer?.invalidate()
         countdownTimer?.invalidate()
         removeTriviaButtons()

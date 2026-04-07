@@ -26,7 +26,9 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **18 species** with unique ASCII sprites, 3D models, and personalities
 - **5 rarity tiers**: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%)
 - **Deterministic**: Same user always gets the same buddy (FNV-1a + Mulberry32 PRNG)
-- **LLM-powered reactions**: Your buddy reacts to your coding via the `buddy_react` API (~100 tokens/call, doesn't count toward usage limits)
+- **Hybrid LLM reactions**: Context-aware reactions via cloud API + local Ollama LLM; events like commits and sessions get rich context (project, branch, weather, mood); minor events stay static
+- **Local LLM agent**: Ollama + Qwen3-Coder integration with agentic tool calling (read/write files, search code, run commands) — "Ask Buddy..." from the speech bubble
+- **LLM mode switching**: Local / Cloud / Hybrid modes via menu; hybrid tries local first, falls back to cloud with ☁️ indicator
 - **6 eye styles**, **8 hat types** (rarity-gated), **1% shiny chance**
 - **5 stats**: DEBUGGING, PATIENCE, CHAOS, WISDOM, SNARK (0-100)
 
@@ -52,8 +54,11 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 - **2D/3D toggle** — switch between ASCII sprite and SceneKit 3D rendering on-the-fly via menu, preference persisted
 - **Species reroll** — hatch a brand new egg at any time with a 3-step introduction sequence (crack animation → name/species/rarity reveal → welcome message); resets progress, mood, energy, and streak but keeps settings
 - **Center Buddy** — bring buddy back to screen center if it wanders off
+- **Ask Buddy agent** — direct text input in the speech bubble (via menu or Cmd+A); Buddy uses local LLM with tools (read_file, write_file, list_files, search_code, run_command) to assist with coding tasks; sandboxed to project directory
+- **Fallback notification** — ☁️ prefix shown when hybrid mode falls back to cloud API (Ollama unavailable)
+- **Activity-aware sleep** — buddy stays awake during active coding; git events, file changes, Claude Code hooks, and coding window focus all reset the inactivity timer
 - **Menu bar integration** — species emoji + usage percentage, click for usage popover, right-click for full context menu
-- **Usage monitoring** — Claude Code API usage with 5-minute cache, sync button for instant refresh
+- **Usage monitoring** — Claude Code API usage with 5-minute cache, sync button for instant refresh, auto-sizing popover
 - **Species brand colors** — each species has a unique accent color (duck gold, dragon red, octopus purple, etc.); tints the plan label and usage bars below 50%
 - **Usage popover enhancements** — Overview/Detail toggle (compact vs full view), clickable reset label toggles between relative ("2h 15m") and absolute ("5:30 PM") time
 - **Today productivity summary** — reads `~/.claude/stats-cache.json` for daily message/session/tool counts, combined with buddy stat gains; displayed in the usage popover
@@ -90,6 +95,7 @@ This builds the Swift app, installs to `~/Applications/ClaudeBuddy.app`, and set
 - macOS 13+ (Ventura)
 - Swift 5.9+ / Xcode Command Line Tools
 - Node.js 18+ (auto-detected from nvm, fnm, Homebrew, or system install)
+- [Ollama](https://ollama.com/) (optional, for local LLM agent — `brew install ollama && ollama pull qwen3-coder:30b`)
 - No external dependencies (SceneKit is a built-in macOS framework)
 
 ## Usage
@@ -128,7 +134,8 @@ Right-click the buddy or the menu bar icon:
 - **Pet / Feed** — interact with your buddy
 - **Pomodoro** — start/stop focus timer
 - **Games** — Click Catch, Hide & Seek, Trivia
-- **Customize** — Eyes, Hat, Accessories, Language, 2D/3D toggle
+- **Ask Buddy...** — type a question/task directly in the speech bubble; Buddy uses local LLM + tools to help
+- **Customize** — Eyes, Hat, Accessories, Language, 2D/3D toggle, LLM Mode (Local/Cloud/Hybrid)
 - **Hatch New Egg** — reroll species (confirmation dialog, resets progress)
 - **Center Buddy** — snap buddy back to screen center
 - **Take Photo** — save 3D snapshot as PNG (3D mode only)
@@ -418,7 +425,9 @@ desktop/
 │   ├── EnvironmentAwareness.swift   # Time of day, dark mode, weather
 │   ├── PomodoroTimer.swift          # 25/5/15 focus timer
 │   ├── MiniGames.swift             # Click Catch, Hide & Seek, Trivia
-│   ├── ProductivityMonitor.swift    # Git, clipboard, active window, FSEvents, Claude Code hook monitors
+│   ├── ProductivityMonitor.swift    # Git, clipboard, active window, FSEvents, Claude Code hook monitors + ProjectContext
+│   ├── OllamaService.swift         # Local LLM client (Ollama HTTP API, react + agentic tool-calling loop)
+│   ├── AgentToolExecutor.swift     # Sandboxed tool implementations (read/write/list/search/run)
 │   ├── UsageAPI.swift              # Claude Code usage API client + stats-cache reader
 │   ├── UsageView.swift             # Usage popover UI (overview/detail, today summary, brand tint, reset toggle)
 │   └── CredentialManager.swift      # OAuth credential management
@@ -470,6 +479,7 @@ Buddy reactions use a separate `buddy_companion` query source and do not count t
 ├── buddy.json                 # Buddy data (soul, mood, energy, language, etc.)
 ├── buddy-history.json         # Recent reaction history
 ├── buddy-events.json          # Claude Code hook events (max 50, FIFO)
+├── buddy-daily-log.json       # Daily activity log (commits, sessions, storms)
 ├── buddy-pomodoro.json        # Pomodoro timer state
 └── stats-cache.json           # Claude Code daily activity stats (read by desktop app for today summary)
 

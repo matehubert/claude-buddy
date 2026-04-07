@@ -21,7 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Shake detection
     private var recentDragPositions: [(x: CGFloat, time: Date)] = []
 
-    // LLM rate limiter
+    // LLM mode
+    enum LLMMode: String { case local, cloud, hybrid }
+    private var llmMode: LLMMode = .hybrid
+
+    // LLM rate limiter (cloud only)
     private var llmCallTimestamps: [Date] = []
     private let maxLLMCallsPerHour = 6
 
@@ -39,6 +43,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Load render mode preference (default: 2D ASCII)
         use3D = UserDefaults.standard.bool(forKey: "buddyUse3D")
+
+        // Load LLM mode preference (default: hybrid)
+        if let savedMode = UserDefaults.standard.string(forKey: "buddyLLMMode"),
+           let mode = LLMMode(rawValue: savedMode) {
+            llmMode = mode
+        }
 
         setupMenuBar()
         setupBuddyPanel()
@@ -144,6 +154,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let prod = ProductivityMonitor.shared
         prod.onGitEvent = { [weak self] event in
             guard let self = self else { return }
+            self.animationController.noteActivity()
             DailyActivityLog.shared.logEvent(event)
             switch event {
             case "commit":
@@ -170,12 +181,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         prod.onActiveWindowEvent = { [weak self] category, appName in
+            if category == "coding" {
+                self?.animationController.noteActivity()
+            }
             // Static — no LLM
             let msg = ProductivityMonitor.reactionForWindowEvent(category, appName: appName)
             self?.animationController.showReaction(msg)
         }
         prod.onFileSystemEvent = { [weak self] intensity in
             guard let self = self else { return }
+            self.animationController.noteActivity()
             DailyActivityLog.shared.logEvent(intensity)
             // Static — no LLM
             let msg = ProductivityMonitor.reactionForFSEvent(intensity)
@@ -188,6 +203,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         prod.onClaudeCodeEvent = { [weak self] category, detail in
             guard let self = self else { return }
+            self.animationController.noteActivity()
             switch category {
             case "session_start":
                 // LLM reaction with context
@@ -274,7 +290,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         usagePopover.behavior = .transient
         usageVC = UsageViewController()
         usagePopover.contentViewController = usageVC
-        usagePopover.contentSize = NSSize(width: 300, height: 280)
+        usagePopover.contentSize = NSSize(width: 300, height: 120)
     }
 
     private func refreshMenuBarUsage() {
@@ -360,6 +376,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let usage = NSMenuItem(title: BuddyL10n.menuUsage, action: #selector(showUsage), keyEquivalent: "u")
         usage.target = self
         menu.addItem(usage)
+
+        let askBuddy = NSMenuItem(title: "Ask Buddy...", action: #selector(askBuddyAgent), keyEquivalent: "a")
+        askBuddy.target = self
+        menu.addItem(askBuddy)
 
         menu.addItem(.separator())
 
@@ -480,6 +500,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let modeItem = NSMenuItem(title: modeTitle, action: #selector(toggleRenderMode), keyEquivalent: "")
         modeItem.target = self
         customizeMenu.addItem(modeItem)
+
+        // LLM Mode submenu
+        let llmItem = NSMenuItem(title: "LLM Mode", action: nil, keyEquivalent: "")
+        let llmMenu = NSMenu()
+        for mode in [LLMMode.hybrid, .local, .cloud] {
+            let title: String
+            switch mode {
+            case .hybrid: title = "Hybrid (Local + Cloud)"
+            case .local: title = "Local Only (Ollama)"
+            case .cloud: title = "Cloud Only"
+            }
+            let item = NSMenuItem(title: title, action: #selector(setLLMMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            if mode == llmMode { item.state = .on }
+            llmMenu.addItem(item)
+        }
+        llmItem.submenu = llmMenu
+        customizeMenu.addItem(llmItem)
 
         customizeItem.submenu = customizeMenu
         menu.addItem(customizeItem)
@@ -679,14 +718,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Hybrid LLM/Static Reaction
 
     private func reactWithLLM(reason: String, context: [String: Any], fallback: String) {
+        switch llmMode {
+        case .local:
+            reactWithLocal(reason: reason, context: context, fallback: fallback)
+        case .cloud:
+            reactWithCloud(reason: reason, context: context, fallback: fallback)
+        case .hybrid:
+            // Try local first, fall back to cloud
+            Task {
+                let available = await OllamaService.shared.isAvailable()
+                await MainActor.run {
+                    if available {
+                        self.reactWithLocal(reason: reason, context: context, fallback: fallback)
+                    } else {
+                        // Cloud fallback with ☁️ prefix
+                        self.reactWithCloud(reason: reason, context: context, fallback: fallback, showFallbackPrefix: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private func reactWithLocal(reason: String, context: [String: Any], fallback: String) {
+        let systemPrompt = buildLocalSystemPrompt()
+        let userMsg = buildLocalUserMessage(reason: reason, context: context)
+        Task {
+            let reaction = await OllamaService.shared.react(systemPrompt: systemPrompt, userMessage: userMsg)
+            await MainActor.run {
+                self.animationController.showReaction(reaction ?? fallback)
+            }
+        }
+    }
+
+    private func reactWithCloud(reason: String, context: [String: Any], fallback: String, showFallbackPrefix: Bool = false) {
         guard canCallLLM() else {
             animationController.showReaction(fallback)
             return
         }
         recordLLMCall()
         BuddyData.shared.react(reason: reason, context: context) { [weak self] reaction in
-            self?.animationController.showReaction(reaction ?? fallback)
+            let text = reaction ?? fallback
+            if showFallbackPrefix {
+                self?.animationController.showReaction("☁️ \(text)")
+            } else {
+                self?.animationController.showReaction(text)
+            }
         }
+    }
+
+    private func buildLocalSystemPrompt() -> String {
+        let name = BuddyData.shared.soul?.name ?? "Buddy"
+        let species = BuddyData.shared.bones?.species ?? "creature"
+        return "You are \(name), a cute \(species) desktop pet companion. Respond in 1-2 short sentences. Be playful, supportive, and aware of the developer's context. Keep responses under 100 characters if possible."
+    }
+
+    private func buildLocalUserMessage(reason: String, context: [String: Any]) -> String {
+        var parts: [String] = ["Event: \(reason)"]
+        if let detail = context["eventDetail"] as? String { parts.append("Detail: \(detail)") }
+        if let project = context["project"] as? String { parts.append("Project: \(project)") }
+        if let branch = context["gitBranch"] as? String { parts.append("Branch: \(branch)") }
+        if let weather = context["weather"] as? String { parts.append("Weather: \(weather)") }
+        if let mood = context["mood"] as? String { parts.append("Mood: \(mood)") }
+        if let tod = context["timeOfDay"] as? String { parts.append("Time: \(tod)") }
+        return parts.joined(separator: "\n")
     }
 
     // MARK: - Mouse Tracking
@@ -1147,6 +1241,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
+    }
+
+    @objc private func askBuddyAgent() {
+        speechBubble.showInput(placeholder: "e.g., list Swift files...") { [weak self] task in
+            guard let self = self else { return }
+            let projectDir = ProductivityMonitor.shared.currentProjectDir ?? FileManager.default.homeDirectoryForCurrentUser.path
+            self.animationController.showReaction("🤔 thinking...")
+
+            Task {
+                let systemPrompt = self.buildLocalSystemPrompt() + "\nYou have tools to read/write files, list directories, search code, and run commands. Use them to help the developer."
+                let result = await OllamaService.shared.executeAgent(
+                    systemPrompt: systemPrompt,
+                    task: task,
+                    projectDir: projectDir
+                )
+                await MainActor.run {
+                    self.speechBubble.show(text: result, duration: 10.0)
+                }
+            }
+        }
+    }
+
+    @objc private func setLLMMode(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let mode = LLMMode(rawValue: rawValue) else { return }
+        llmMode = mode
+        UserDefaults.standard.set(rawValue, forKey: "buddyLLMMode")
+        animationController.showReaction("LLM: \(rawValue)")
     }
 
     @objc private func quitApp() {
