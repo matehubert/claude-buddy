@@ -59,6 +59,114 @@ class SpeciesModelBuilder {
     static let shared = SpeciesModelBuilder()
 
     func build(species: String, shiny: Bool = false) -> SpeciesModel {
+        // Try loading Meshy-generated USDZ model first
+        if let usdzModel = loadUSDZ(species: species, shiny: shiny) {
+            return usdzModel
+        }
+        // Fallback to procedural generation
+        return buildProcedural(species: species, shiny: shiny)
+    }
+
+    // MARK: - USDZ Model Loading
+
+    private func loadUSDZ(species: String, shiny: Bool) -> SpeciesModel? {
+        // Look for model in app bundle Resources/Models/
+        guard let resourcePath = Bundle.main.resourcePath else { return nil }
+        let modelPath = "\(resourcePath)/Models/\(species).usdz"
+
+        guard FileManager.default.fileExists(atPath: modelPath),
+              let scene = try? SCNScene(url: URL(fileURLWithPath: modelPath), options: [
+                  .checkConsistency: false
+              ]) else {
+            return nil
+        }
+
+        // Architecture: root (no scale/position) → contentNode (scale + offset) + proxy nodes
+        // Proxy nodes are children of ROOT so their positions are in world-space scene units
+        let root = SCNNode()
+        root.name = "usdz_\(species)"
+
+        // Content node holds the actual USDZ geometry with scale and offset
+        let contentNode = SCNNode()
+        contentNode.name = "usdz_content"
+        for child in scene.rootNode.childNodes {
+            contentNode.addChildNode(child.clone())
+        }
+
+        // Calculate bounding box BEFORE scaling
+        let (bbMin, bbMax) = contentNode.boundingBox
+        let modelHeight = Float(bbMax.y - bbMin.y)
+        let modelWidth = Float(bbMax.x - bbMin.x)
+
+        // Normalize scale: target height ~1.5 scene units
+        let targetHeight: Float = 1.5
+        let scale = targetHeight / max(modelHeight, 0.01)
+        contentNode.scale = SCNVector3(scale, scale, scale)
+
+        // Center horizontally and place feet at y=0
+        let centerX = Float(bbMin.x + bbMax.x) / 2
+        contentNode.position = SCNVector3(-centerX * scale, -Float(bbMin.y) * scale, 0)
+        root.addChildNode(contentNode)
+
+        // Scaled dimensions (for placing proxy nodes in world-space)
+        let scaledHeight = modelHeight * scale
+        let scaledWidth = modelWidth * scale
+
+        // Proxy nodes are children of ROOT (no parent scale), positions in scene units
+        let headNode = SCNNode()
+        headNode.name = "head_proxy"
+        headNode.position = SCNVector3(0, scaledHeight * 0.75, 0)
+        root.addChildNode(headNode)
+
+        let eyeY = scaledHeight * 0.7
+        let eyeSpacing = scaledWidth * 0.15
+
+        let leftEye = SCNNode()
+        leftEye.name = "left_eye_proxy"
+        leftEye.position = SCNVector3(-eyeSpacing, eyeY, 0.2)
+        root.addChildNode(leftEye)
+
+        let rightEye = SCNNode()
+        rightEye.name = "right_eye_proxy"
+        rightEye.position = SCNVector3(eyeSpacing, eyeY, 0.2)
+        root.addChildNode(rightEye)
+
+        // Hat attachment point (in root's local space = world space)
+        let hatAttachY = scaledHeight + 0.1
+
+        if shiny {
+            applyShinyOverlay(to: contentNode)
+        }
+
+        return SpeciesModel(
+            rootNode: root,
+            headNode: headNode,
+            leftEyeNode: leftEye,
+            rightEyeNode: rightEye,
+            mouthNode: nil,
+            hatAttachPoint: SCNVector3(0, hatAttachY, 0),
+            boundingHeight: scaledHeight,
+            tailNode: nil
+        )
+    }
+
+    private func applyShinyOverlay(to node: SCNNode) {
+        if let geo = node.geometry {
+            for i in 0..<geo.materials.count {
+                let mat = geo.materials[i]
+                mat.emission.contents = NSColor(white: 0.15, alpha: 1.0)
+                mat.metalness.contents = NSNumber(value: 0.6)
+                mat.roughness.contents = NSNumber(value: 0.3)
+            }
+        }
+        for child in node.childNodes {
+            applyShinyOverlay(to: child)
+        }
+    }
+
+    // MARK: - Procedural Fallback
+
+    private func buildProcedural(species: String, shiny: Bool) -> SpeciesModel {
         switch species {
         case "duck":     return buildDuck(shiny: shiny)
         case "goose":    return buildGoose(shiny: shiny)

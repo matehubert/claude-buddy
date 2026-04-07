@@ -4,7 +4,6 @@ class UsageViewController: NSViewController {
     private var stackView: NSStackView!
     private var planLabel: NSTextField!
     private var syncButton: NSButton!
-    private var detailButton: NSButton!
     private var fiveHourBar: UsageBarView!
     private var sevenDayBar: UsageBarView!
     private var opusBar: UsageBarView!
@@ -12,24 +11,26 @@ class UsageViewController: NSViewController {
     private var extraLabel: NSTextField!
     private var todayDivider: NSBox!
     private var todayLabel: NSTextField!
+    private var settingsButton: NSButton!
     private var refreshTimer: Timer?
-    private var isDetailMode = false
 
     override func loadView() {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        // Use a flipped view so content starts at the top (no gap)
+        let container = FlippedView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
         container.wantsLayer = true
 
         stackView = NSStackView()
         stackView.orientation = .vertical
         stackView.alignment = .leading
-        stackView.spacing = 10
+        stackView.spacing = 8
         stackView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            stackView.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
+            stackView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
             stackView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             stackView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            stackView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
         ])
 
         // Header row with plan name + sync button
@@ -43,18 +44,11 @@ class UsageViewController: NSViewController {
         planLabel.textColor = .labelColor
         headerRow.addArrangedSubview(planLabel)
 
-        // Spacer
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 10).isActive = true
+        spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 4).isActive = true
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         headerRow.addArrangedSubview(spacer)
-
-        detailButton = NSButton(title: "Detail", target: self, action: #selector(detailToggleClicked))
-        detailButton.bezelStyle = .inline
-        detailButton.font = .systemFont(ofSize: 11)
-        detailButton.controlSize = .small
-        headerRow.addArrangedSubview(detailButton)
 
         syncButton = NSButton(title: "Sync", target: self, action: #selector(syncClicked))
         syncButton.bezelStyle = .inline
@@ -75,13 +69,13 @@ class UsageViewController: NSViewController {
         stackView.addArrangedSubview(sevenDayBar)
         sevenDayBar.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
-        // Opus bar (hidden by default)
+        // Opus bar (hidden until data arrives)
         opusBar = UsageBarView(title: "7-Day Opus")
         opusBar.isHidden = true
         stackView.addArrangedSubview(opusBar)
         opusBar.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 
-        // Sonnet bar (hidden by default)
+        // Sonnet bar (hidden until data arrives)
         sonnetBar = UsageBarView(title: "7-Day Sonnet")
         sonnetBar.isHidden = true
         stackView.addArrangedSubview(sonnetBar)
@@ -104,41 +98,31 @@ class UsageViewController: NSViewController {
         todayLabel.textColor = .secondaryLabelColor
         stackView.addArrangedSubview(todayLabel)
 
+        // Settings link — opens claude.ai usage settings
+        let settingsDivider = NSBox()
+        settingsDivider.boxType = .separator
+        stackView.addArrangedSubview(settingsDivider)
+        settingsDivider.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+
+        settingsButton = NSButton(title: "Open Usage Settings...", target: self, action: #selector(openUsageSettings))
+        settingsButton.bezelStyle = .inline
+        settingsButton.font = .systemFont(ofSize: 11)
+        settingsButton.controlSize = .small
+        settingsButton.contentTintColor = .linkColor
+        stackView.addArrangedSubview(settingsButton)
+
         self.view = container
     }
 
-    @objc private func detailToggleClicked() {
-        isDetailMode = !isDetailMode
-        detailButton.title = isDetailMode ? "Overview" : "Detail"
-        if isDetailMode {
-            // Switching to detail: re-fetch so updateUI sets correct bar visibility
-            refreshUsage()
-        } else {
-            applyViewMode()
+    @objc private func openUsageSettings() {
+        if let url = URL(string: "https://claude.ai/settings/usage") {
+            NSWorkspace.shared.open(url)
         }
-    }
-
-    private func applyViewMode() {
-        if !isDetailMode {
-            // Overview: hide detail bars, keep fiveHourBar + today + extra visible
-            sevenDayBar.isHidden = true
-            opusBar.isHidden = true
-            sonnetBar.isHidden = true
-        } else {
-            // Detail: restore bars; updateUI sets opus/sonnet based on API data
-            sevenDayBar.isHidden = false
-        }
-
-        // Resize popover
-        let fittingHeight = stackView.fittingSize.height + 32
-        view.frame.size.height = max(fittingHeight, isDetailMode ? 200 : 120)
-        preferredContentSize = NSSize(width: 300, height: view.frame.size.height)
     }
 
     private func updateTodaySummary() {
         let stats = UsageAPI.shared.readTodaySummary()
 
-        // Combine with dailyStatGains from soul
         var statGainTotal = 0
         if let gains = BuddyData.shared.soul?.dailyStatGains {
             statGainTotal = gains.values.reduce(0, +)
@@ -179,7 +163,6 @@ class UsageViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        applyViewMode()
         refreshUsage()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             self?.refreshUsage()
@@ -202,12 +185,12 @@ class UsageViewController: NSViewController {
                 case .cached(let usage):
                     self.updateUI(usage)
                     if let err = UsageAPI.shared.lastError {
-                        self.extraLabel.stringValue = "⚠ cached — \(err)"
+                        self.extraLabel.stringValue = "cached — \(err)"
                         self.extraLabel.textColor = .systemOrange
                     }
                 case .error(let msg):
                     self.planLabel.stringValue = "Claude Code"
-                    self.extraLabel.stringValue = "⚠ \(msg)"
+                    self.extraLabel.stringValue = msg
                     self.extraLabel.textColor = .systemOrange
                 }
             }
@@ -215,11 +198,9 @@ class UsageViewController: NSViewController {
     }
 
     private func updateUI(_ usage: UsageResponse) {
-        // Plan name from credentials
         let plan = UsageAPI.shared.planInfo
         planLabel.stringValue = "Claude Code — \(plan.displayName)"
 
-        // Brand tint from species
         let species = BuddyData.shared.bones?.species ?? ""
         let brandColor = SpeciesColors.accentColor(for: species)
         planLabel.textColor = brandColor
@@ -228,21 +209,19 @@ class UsageViewController: NSViewController {
         opusBar.brandTint = brandColor
         sonnetBar.brandTint = brandColor
 
-        // 5-hour session (utilization is 0-100 from API)
+        // 5-hour session
         if let fh = usage.fiveHour {
-            let pct = fh.utilization ?? 0
-            fiveHourBar.update(percentage: pct, resetTime: fh.resetsAt)
+            fiveHourBar.update(percentage: fh.utilization ?? 0, resetTime: fh.resetsAt)
             fiveHourBar.isHidden = false
         }
 
         // 7-day overall
         if let sd = usage.sevenDay {
-            let pct = sd.utilization ?? 0
-            sevenDayBar.update(percentage: pct, resetTime: sd.resetsAt)
+            sevenDayBar.update(percentage: sd.utilization ?? 0, resetTime: sd.resetsAt)
             sevenDayBar.isHidden = false
         }
 
-        // 7-day Opus (only show if data exists)
+        // 7-day Opus (show only if data exists)
         if let opus = usage.sevenDayOpus, opus.utilization != nil {
             opusBar.update(percentage: opus.utilization ?? 0, resetTime: opus.resetsAt)
             opusBar.isHidden = false
@@ -250,7 +229,7 @@ class UsageViewController: NSViewController {
             opusBar.isHidden = true
         }
 
-        // 7-day Sonnet
+        // 7-day Sonnet (show only if data exists)
         if let sonnet = usage.sevenDaySonnet, sonnet.utilization != nil {
             sonnetBar.update(percentage: sonnet.utilization ?? 0, resetTime: sonnet.resetsAt)
             sonnetBar.isHidden = false
@@ -262,7 +241,6 @@ class UsageViewController: NSViewController {
         if let extra = usage.extraUsage {
             if extra.isEnabled == true {
                 if let used = extra.usedCredits, let limit = extra.monthlyLimit {
-                    // API returns values in cents — convert to dollars
                     let usedDollars = used > 100 ? used / 100.0 : used
                     let limitDollars = limit > 100 ? limit / 100.0 : limit
                     extraLabel.stringValue = "Extra usage: \(Self.formatDollars(usedDollars)) / \(Self.formatDollars(limitDollars))"
@@ -276,17 +254,18 @@ class UsageViewController: NSViewController {
             extraLabel.stringValue = ""
         }
 
-        // Log raw extra usage values for debugging
-        if let extra = usage.extraUsage, let used = extra.usedCredits {
-            NSLog("[Buddy] Extra usage raw values — used: \(used), limit: \(extra.monthlyLimit ?? 0)")
-        }
-
-        // Today summary
         updateTodaySummary()
 
-        // Apply view mode and resize
-        applyViewMode()
+        // Resize popover to fit
+        stackView.layoutSubtreeIfNeeded()
+        let height = stackView.fittingSize.height + 24
+        preferredContentSize = NSSize(width: 300, height: height)
     }
+}
+
+// Flipped view so NSPopover content starts from top, no gap
+private class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 // MARK: - Usage Bar View
@@ -374,13 +353,11 @@ class UsageBarView: NSView {
         ])
     }
 
-    /// percentage: 0-100 value directly from API (e.g. 9.0 means 9%)
     func update(percentage: Double, resetTime: String?) {
         self.currentPercentage = percentage
         self.currentResetTime = resetTime
         percentLabel.stringValue = String(format: "%.0f%%", percentage)
 
-        // Color: brand tint < 50%, yellow 50-80%, red > 80%
         let color: NSColor
         if percentage < 50 {
             color = brandTint ?? NSColor.systemGreen
@@ -391,7 +368,6 @@ class UsageBarView: NSView {
         }
         barFill.layer?.backgroundColor = color.cgColor
 
-        // Bar fill ratio: percentage / 100
         let ratio = CGFloat(min(percentage, 100.0)) / 100.0
         let maxWidth = barBackground.bounds.width
         if maxWidth > 0 {

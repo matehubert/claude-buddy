@@ -10,6 +10,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var usagePopover: NSPopover!
     private var usageVC: UsageViewController!
     private var usageRefreshTimer: Timer?
+    private var clipboardPopover: NSPopover!
+    private var clipboardVC: ClipboardHistoryViewController!
 
     // Mouse tracking
     private var globalMouseMonitor: Any?
@@ -21,14 +23,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // Shake detection
     private var recentDragPositions: [(x: CGFloat, time: Date)] = []
 
-    // LLM mode
-    enum LLMMode: String { case local, cloud, hybrid }
-    private var llmMode: LLMMode = .hybrid
-
-    // LLM rate limiter (cloud only)
-    private var llmCallTimestamps: [Date] = []
-    private let maxLLMCallsPerHour = 6
-
     // Morning greeting & daily summary
     private var hasGreetedToday = false
     private var dailySummaryShownToday = false
@@ -38,38 +32,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let hats = ["none", "crown", "tophat", "propeller", "halo", "wizard", "beanie", "tinyduck"]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Initialize language from soul or system locale
+        // ── Stage 1: Minimal UI (immediate) ──
+        // Load soul data synchronously (fast file read, no process spawn)
         BuddyL10n.setup(soul: BuddyData.shared.soul)
 
-        // Load render mode preference (default: 2D ASCII)
+        // Load preferences
         use3D = UserDefaults.standard.bool(forKey: "buddyUse3D")
 
-        // Load LLM mode preference (default: hybrid)
-        if let savedMode = UserDefaults.standard.string(forKey: "buddyLLMMode"),
-           let mode = LLMMode(rawValue: savedMode) {
-            llmMode = mode
-        }
-
+        // UI setup (no I/O, no processes)
         setupMenuBar()
         setupBuddyPanel()
         setupAnimations()
         loadBuddyData()
-        setupMouseTracking()
-        setupGlobalHotkey()
-        setupSystems()
 
-        // Start usage refresh for menu bar display (every 5 min)
-        refreshMenuBarUsage()
-        usageRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        // ── Stage 2: Input monitors (after 0.5s — let UI render first) ──
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.setupMouseTracking()
+            self?.setupGlobalHotkey()
+        }
+
+        // ── Stage 3: Heavy systems (after 2s — UI is stable) ──
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.setupSystems()
+        }
+
+        // ── Stage 4: Network & timers (after 5s — everything else is ready) ──
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             self?.refreshMenuBarUsage()
-        }
-
-        // Periodic reaction (every 10 minutes)
-        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
-            self?.fetchReaction()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            self?.fetchReaction()
+            self?.usageRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+                self?.refreshMenuBarUsage()
+            }
+            // Periodic reaction (every 30 minutes)
+            Timer.scheduledTimer(withTimeInterval: 1800, repeats: true) { [weak self] _ in
+                self?.fetchReaction()
+            }
         }
     }
 
@@ -85,6 +81,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         buddyPanel.savePosition()
         MoodEnergySystem.shared.saveToDisk()
         dailySummaryTimer?.invalidate()
+        ProductivityMonitor.shared.stop()
+        EnvironmentAwareness.shared.stop()
+        animationController.stop()
+        usageRefreshTimer?.invalidate()
     }
 
     // MARK: - System Setup
@@ -110,10 +110,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         env.onWeatherChange = { [weak self] weather in
             guard let self = self else { return }
             self.animationController.applyEnvironment()
-            // LLM reaction for weather change
-            let ctx = self.buildContext(eventDetail: "weather just changed to \(weather)")
-            self.reactWithLLM(reason: "weather_change", context: ctx,
-                              fallback: weather == "rain" ? BuddyL10n.itsRaining : BuddyL10n.moodContent.randomElement()!)
+            let msg = weather == "rain" ? BuddyL10n.itsRaining : BuddyL10n.moodContent.randomElement()!
+            self.animationController.showReaction(msg)
         }
         env.start()
 
@@ -160,9 +158,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case "commit":
                 // LLM reaction with context
                 MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 1)
-                let ctx = self.buildContext(eventDetail: "user just committed code")
-                self.reactWithLLM(reason: "commit", context: ctx,
-                                  fallback: BuddyL10n.gitCommit.randomElement()!)
+                self.animationController.showReaction(BuddyL10n.gitCommit.randomElement()!)
             case "conflict":
                 MoodEnergySystem.shared.incrementStat("DEBUGGING", by: 2)
                 self.animationController.showReaction(BuddyL10n.gitConflict.randomElement()!)
@@ -206,17 +202,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.animationController.noteActivity()
             switch category {
             case "session_start":
-                // LLM reaction with context
                 DailyActivityLog.shared.logEvent("session_start")
-                let ctx = self.buildContext(eventDetail: "Claude Code session started")
-                self.reactWithLLM(reason: "session_start", context: ctx,
-                                  fallback: BuddyL10n.hookSessionStart.randomElement()!)
+                self.animationController.showReaction(BuddyL10n.hookSessionStart.randomElement()!)
             case "writing_code":
-                // LLM reaction with context
-                let detail_text = (!detail.isEmpty && detail != "Write" && detail != "Edit") ? "Claude writing \(detail)" : "Claude writing code"
-                let ctx = self.buildContext(eventDetail: detail_text)
-                self.reactWithLLM(reason: "writing_code", context: ctx,
-                                  fallback: BuddyL10n.hookWritingCode.randomElement()!)
+                self.animationController.showReaction(BuddyL10n.hookWritingCode.randomElement()!)
             default:
                 // Static for other hook events
                 let msg = ProductivityMonitor.reactionForHookEvent(category, detail: detail)
@@ -236,8 +225,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.checkDailySummary()
         }
 
-        // Apply initial environment
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        // Apply initial environment (delay to let data settle)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.animationController.applyEnvironment()
             self?.animationController.applyMood()
         }
@@ -249,18 +238,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let soul = BuddyData.shared.soul, !soul.muted, !soul.hidden else { return }
 
         dailySummaryShownToday = true
-        var ctx = buildContext(eventDetail: "end of day summary")
-        ctx["dailySummary"] = DailyActivityLog.shared.dailySummaryText()
-
-        if canCallLLM() {
-            recordLLMCall()
-            BuddyData.shared.react(reason: "daily_summary", context: ctx) { [weak self] reaction in
-                let text = reaction ?? "Today: \(DailyActivityLog.shared.dailySummaryText())"
-                self?.speechBubble.show(text: text, duration: 10.0)
-            }
-        } else {
-            speechBubble.show(text: "Today: \(DailyActivityLog.shared.dailySummaryText())", duration: 10.0)
-        }
+        speechBubble.show(text: "Today: \(DailyActivityLog.shared.dailySummaryText())", duration: 10.0)
     }
 
     private func moodText(_ mood: BuddyMood) -> String {
@@ -286,11 +264,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
+        // Popovers are lazy-initialized on first use to save ~3-5MB at startup
+    }
+
+    private func ensureUsagePopover() {
+        guard usagePopover == nil else { return }
         usagePopover = NSPopover()
         usagePopover.behavior = .transient
         usageVC = UsageViewController()
         usagePopover.contentViewController = usageVC
-        usagePopover.contentSize = NSSize(width: 300, height: 120)
+        usagePopover.contentSize = NSSize(width: 300, height: 360)
+    }
+
+    private func ensureClipboardPopover() {
+        guard clipboardPopover == nil else { return }
+        clipboardPopover = NSPopover()
+        clipboardPopover.behavior = .transient
+        clipboardVC = ClipboardHistoryViewController()
+        clipboardVC.onCopy = { [weak self] in
+            self?.clipboardPopover.performClose(nil)
+            self?.animationController.showReaction("Copied!")
+        }
+        clipboardPopover.contentViewController = clipboardVC
+        clipboardPopover.contentSize = NSSize(width: 320, height: 350)
     }
 
     private func refreshMenuBarUsage() {
@@ -315,6 +311,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func toggleUsagePopover() {
+        ensureUsagePopover()
         if usagePopover.isShown {
             usagePopover.performClose(nil)
         } else if let button = statusItem.button {
@@ -377,9 +374,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         usage.target = self
         menu.addItem(usage)
 
-        let askBuddy = NSMenuItem(title: "Ask Buddy...", action: #selector(askBuddyAgent), keyEquivalent: "a")
-        askBuddy.target = self
-        menu.addItem(askBuddy)
+        let clipboard = NSMenuItem(title: "Clipboard History", action: #selector(showClipboardHistory), keyEquivalent: "h")
+        clipboard.target = self
+        menu.addItem(clipboard)
 
         menu.addItem(.separator())
 
@@ -501,25 +498,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         modeItem.target = self
         customizeMenu.addItem(modeItem)
 
-        // LLM Mode submenu
-        let llmItem = NSMenuItem(title: "LLM Mode", action: nil, keyEquivalent: "")
-        let llmMenu = NSMenu()
-        for mode in [LLMMode.hybrid, .local, .cloud] {
-            let title: String
-            switch mode {
-            case .hybrid: title = "Hybrid (Local + Cloud)"
-            case .local: title = "Local Only (Ollama)"
-            case .cloud: title = "Cloud Only"
-            }
-            let item = NSMenuItem(title: title, action: #selector(setLLMMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode.rawValue
-            if mode == llmMode { item.state = .on }
-            llmMenu.addItem(item)
-        }
-        llmItem.submenu = llmMenu
-        customizeMenu.addItem(llmItem)
-
         customizeItem.submenu = customizeMenu
         menu.addItem(customizeItem)
 
@@ -561,30 +539,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupBuddyPanel() {
         if use3D {
-            buddyPanel = BuddyPanel(width: 250, height: 250)
-            let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 40, width: 250, height: 200))
+            buddyPanel = BuddyPanel(width: 250, height: 260)
+            let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
             renderer = buddy3D
 
-            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 242, height: 48))
+            // Thought bubble ABOVE the buddy
+            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 200, width: 242, height: 50))
 
-            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 250))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 260))
             contentView.wantsLayer = true
             contentView.layer?.isOpaque = false
             contentView.layer?.backgroundColor = CGColor.clear
-            contentView.addSubview(speechBubble)
             contentView.addSubview(buddy3D)
+            contentView.addSubview(speechBubble)
             buddyPanel.contentView = contentView
         } else {
             buddyPanel = BuddyPanel(width: 200, height: 180)
 
-            let buddyView = BuddyView(frame: NSRect(x: 0, y: 30, width: 200, height: 140))
+            let buddyView = BuddyView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
             renderer = buddyView
 
-            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 0, width: 192, height: 36))
+            // Thought bubble ABOVE the buddy
+            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 120, width: 192, height: 50))
 
             let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 180))
-            contentView.addSubview(speechBubble)
             contentView.addSubview(buddyView)
+            contentView.addSubview(speechBubble)
             buddyPanel.contentView = contentView
         }
 
@@ -608,9 +588,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         renderer.onDoubleClick = { [weak self] in
-            self?.animationController.noteActivity()
-            let species = BuddyData.shared.bones?.species ?? ""
-            self?.animationController.triggerSpeciesTrick(species: species)
+            guard let self = self else { return }
+            self.animationController.noteActivity()
+            if let species = BuddyData.shared.bones?.species {
+                self.animationController.triggerSpeciesTrick(species: species)
+            }
         }
 
         renderer.onRightClick = { [weak self] event in
@@ -661,126 +643,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let data = BuddyData.shared
         guard let soul = data.soul, !soul.muted, !soul.hidden else { return }
 
-        // Morning greeting (once per app launch)
         if !hasGreetedToday {
             hasGreetedToday = true
-            let ctx = buildContext(eventDetail: "app just launched, greet the user")
-            reactWithLLM(reason: "morning_greeting", context: ctx, fallback: BuddyL10n.moodHappy.randomElement()!)
+            animationController.showReaction(BuddyL10n.moodHappy.randomElement()!)
             return
         }
 
-        // Regular periodic reaction (use LLM with context)
-        let ctx = buildContext(eventDetail: "periodic check-in")
-        reactWithLLM(reason: "turn", context: ctx, fallback: BuddyL10n.moodContent.randomElement()!)
-    }
-
-    // MARK: - LLM Rate Limiter
-
-    private func canCallLLM() -> Bool {
-        let now = Date()
-        llmCallTimestamps = llmCallTimestamps.filter { now.timeIntervalSince($0) < 3600 }
-        return llmCallTimestamps.count < maxLLMCallsPerHour
-    }
-
-    private func recordLLMCall() {
-        llmCallTimestamps.append(Date())
-    }
-
-    // MARK: - Context Builder
-
-    private func buildContext(eventDetail: String) -> [String: Any] {
-        let env = EnvironmentAwareness.shared
-        let mood = MoodEnergySystem.shared
-        let proj = ProductivityMonitor.shared.getProjectContext()
-
-        var ctx: [String: Any] = [
-            "weather": env.weather,
-            "timeOfDay": env.timeOfDay.rawValue,
-            "mood": mood.mood.rawValue,
-            "energy": mood.energy,
-            "eventDetail": eventDetail
-        ]
-        if let temp = env.temperature {
-            ctx["temperature"] = temp
-        }
-        if proj.directoryName != "unknown" {
-            ctx["project"] = proj.directoryName
-        }
-        if proj.gitBranch != "unknown" {
-            ctx["gitBranch"] = proj.gitBranch
-        }
-        if proj.detectedLanguage != "unknown" {
-            ctx["projectLanguage"] = proj.detectedLanguage
-        }
-        return ctx
-    }
-
-    // MARK: - Hybrid LLM/Static Reaction
-
-    private func reactWithLLM(reason: String, context: [String: Any], fallback: String) {
-        switch llmMode {
-        case .local:
-            reactWithLocal(reason: reason, context: context, fallback: fallback)
-        case .cloud:
-            reactWithCloud(reason: reason, context: context, fallback: fallback)
-        case .hybrid:
-            // Try local first, fall back to cloud
-            Task {
-                let available = await OllamaService.shared.isAvailable()
-                await MainActor.run {
-                    if available {
-                        self.reactWithLocal(reason: reason, context: context, fallback: fallback)
-                    } else {
-                        // Cloud fallback with ☁️ prefix
-                        self.reactWithCloud(reason: reason, context: context, fallback: fallback, showFallbackPrefix: true)
-                    }
-                }
-            }
-        }
-    }
-
-    private func reactWithLocal(reason: String, context: [String: Any], fallback: String) {
-        let systemPrompt = buildLocalSystemPrompt()
-        let userMsg = buildLocalUserMessage(reason: reason, context: context)
-        Task {
-            let reaction = await OllamaService.shared.react(systemPrompt: systemPrompt, userMessage: userMsg)
-            await MainActor.run {
-                self.animationController.showReaction(reaction ?? fallback)
-            }
-        }
-    }
-
-    private func reactWithCloud(reason: String, context: [String: Any], fallback: String, showFallbackPrefix: Bool = false) {
-        guard canCallLLM() else {
-            animationController.showReaction(fallback)
-            return
-        }
-        recordLLMCall()
-        BuddyData.shared.react(reason: reason, context: context) { [weak self] reaction in
-            let text = reaction ?? fallback
-            if showFallbackPrefix {
-                self?.animationController.showReaction("☁️ \(text)")
-            } else {
-                self?.animationController.showReaction(text)
-            }
-        }
-    }
-
-    private func buildLocalSystemPrompt() -> String {
-        let name = BuddyData.shared.soul?.name ?? "Buddy"
-        let species = BuddyData.shared.bones?.species ?? "creature"
-        return "You are \(name), a cute \(species) desktop pet companion. Respond in 1-2 short sentences. Be playful, supportive, and aware of the developer's context. Keep responses under 100 characters if possible."
-    }
-
-    private func buildLocalUserMessage(reason: String, context: [String: Any]) -> String {
-        var parts: [String] = ["Event: \(reason)"]
-        if let detail = context["eventDetail"] as? String { parts.append("Detail: \(detail)") }
-        if let project = context["project"] as? String { parts.append("Project: \(project)") }
-        if let branch = context["gitBranch"] as? String { parts.append("Branch: \(branch)") }
-        if let weather = context["weather"] as? String { parts.append("Weather: \(weather)") }
-        if let mood = context["mood"] as? String { parts.append("Mood: \(mood)") }
-        if let tod = context["timeOfDay"] as? String { parts.append("Time: \(tod)") }
-        return parts.joined(separator: "\n")
+        animationController.showReaction(BuddyL10n.moodContent.randomElement()!)
     }
 
     // MARK: - Mouse Tracking
@@ -933,12 +802,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func setLanguage(_ sender: NSMenuItem) {
         guard let lang = sender.representedObject as? String else { return }
         BuddyL10n.current = lang
-        // Persist to buddy.json
+        // Persist to buddy.json — suppress file watcher to avoid cascade
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let soulPath = "\(home)/.claude/buddy.json"
         if let data = FileManager.default.contents(atPath: soulPath),
            var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             json["language"] = lang
+            BuddyData.shared.suppressFileWatcher = true
             if let updated = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
                 try? updated.write(to: URL(fileURLWithPath: soulPath))
             }
@@ -1127,38 +997,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         textView.isEditable = false
         textView.backgroundColor = NSColor(white: 0.08, alpha: 1.0)
         textView.textColor = .white
-
-        let process = Process()
-        let pipe = Pipe()
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let script = "\(home)/.claude/skills/buddy/buddy.mjs"
-        let cmd = nodeArgs(script: script, args: ["card"])
-        process.executableURL = URL(fileURLWithPath: cmd.executable)
-        process.arguments = cmd.arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
-                let attrString = buildCardAttributedString(result: result)
-                textView.textStorage?.setAttributedString(attrString)
-            } else {
-                textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-                textView.string = "Could not load buddy card."
-            }
-        } catch {
-            textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-            textView.string = "Error loading buddy card."
-        }
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.string = "Loading buddy card..."
 
         let scrollView = NSScrollView(frame: NSRect(x: 16, y: 16, width: 448, height: 488))
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         cardPanel.contentView?.addSubview(scrollView)
         cardPanel.orderFront(nil)
+
+        // Load card data on background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let process = Process()
+            let pipe = Pipe()
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            let script = "\(home)/.claude/skills/buddy/buddy.mjs"
+            let cmd = nodeArgs(script: script, args: ["card"])
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+
+            do {
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                DispatchQueue.main.async {
+                    if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
+                        let attrString = self?.buildCardAttributedString(result: result)
+                        textView.textStorage?.setAttributedString(attrString ?? NSAttributedString(string: "No data"))
+                    } else {
+                        textView.string = "Could not load buddy card."
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    textView.string = "Error loading buddy card."
+                }
+            }
+        }
     }
 
     private func buildCardAttributedString(result: BuddyCardResult) -> NSAttributedString {
@@ -1228,6 +1105,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         toggleUsagePopover()
     }
 
+    @objc private func showClipboardHistory() {
+        // Delay to let the menu close first (NSPopover can't open while NSMenu is active)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            self.ensureClipboardPopover()
+            if self.clipboardPopover.isShown {
+                self.clipboardPopover.performClose(nil)
+            } else if let button = self.statusItem.button {
+                self.clipboardVC.reload()
+                self.clipboardPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            }
+        }
+    }
+
     @objc private func toggleMute() {
         guard let soul = BuddyData.shared.soul else { return }
         let newMuted = !soul.muted
@@ -1241,34 +1132,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
-    }
-
-    @objc private func askBuddyAgent() {
-        speechBubble.showInput(placeholder: "e.g., list Swift files...") { [weak self] task in
-            guard let self = self else { return }
-            let projectDir = ProductivityMonitor.shared.currentProjectDir ?? FileManager.default.homeDirectoryForCurrentUser.path
-            self.animationController.showReaction("🤔 thinking...")
-
-            Task {
-                let systemPrompt = self.buildLocalSystemPrompt() + "\nYou have tools to read/write files, list directories, search code, and run commands. Use them to help the developer."
-                let result = await OllamaService.shared.executeAgent(
-                    systemPrompt: systemPrompt,
-                    task: task,
-                    projectDir: projectDir
-                )
-                await MainActor.run {
-                    self.speechBubble.show(text: result, duration: 10.0)
-                }
-            }
-        }
-    }
-
-    @objc private func setLLMMode(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let mode = LLMMode(rawValue: rawValue) else { return }
-        llmMode = mode
-        UserDefaults.standard.set(rawValue, forKey: "buddyLLMMode")
-        animationController.showReaction("LLM: \(rawValue)")
     }
 
     @objc private func quitApp() {

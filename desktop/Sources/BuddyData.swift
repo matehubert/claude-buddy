@@ -345,23 +345,44 @@ class BuddyData {
     var spriteLines: [String] = []
     var onUpdate: (() -> Void)?
 
+    // Debounce & suppression
+    private var reloadDebounceItem: DispatchWorkItem?
+    private var isLoadingBones = false
+    private var needsBonesReload = false
+    /// Set to true before writing buddy.json from Swift side to suppress file watcher reload
+    var suppressFileWatcher = false
+
     private init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         soulPath = "\(home)/.claude/buddy.json"
         buddyMjsPath = "\(home)/.claude/skills/buddy/buddy.mjs"
-        reload()
-        watchFile()
+        // Only load soul synchronously at init (fast file read)
+        loadSoul()
+        // Defer bones loading and file watcher to after the run loop starts
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.loadBones()
+            self?.watchFile()
+        }
     }
 
     func reload() {
         loadSoul()
-        loadBones()
+        // Update sprite from cached bones immediately (no process spawn)
         if let b = bones {
             spriteLines = SpriteData.renderSprite(species: b.species, eye: b.eye, hat: b.hat)
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.onUpdate?()
+        onUpdate?()
+        // Debounced bones reload (spawn node process at most once per 2s)
+        loadBonesDebounced()
+    }
+
+    private func loadBonesDebounced() {
+        reloadDebounceItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.loadBones()
         }
+        reloadDebounceItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 
     private func loadSoul() {
@@ -374,27 +395,55 @@ class BuddyData {
     }
 
     private func loadBones() {
-        // Run buddy.mjs card to get bones data
-        let process = Process()
-        let pipe = Pipe()
+        // Coalesce: if already loading, mark that we need another reload after
+        if isLoadingBones {
+            needsBonesReload = true
+            return
+        }
+        isLoadingBones = true
 
-        let cmd = nodeArgs(script: buddyMjsPath, args: ["card"])
-        process.executableURL = URL(fileURLWithPath: cmd.executable)
-        process.arguments = cmd.arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        // Run buddy.mjs card ASYNC to avoid blocking the main thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            let process = Process()
+            let pipe = Pipe()
 
-        do {
-            try process.run()
-            process.waitUntilExit()
+            let cmd = nodeArgs(script: self.buddyMjsPath, args: ["card"])
+            process.executableURL = URL(fileURLWithPath: cmd.executable)
+            process.arguments = cmd.arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
-                bones = result.bones
+            do {
+                try process.run()
+                // Read pipe data BEFORE waitUntilExit to avoid potential deadlock
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+
+                if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
+                    DispatchQueue.main.async {
+                        self.isLoadingBones = false
+                        self.bones = result.bones
+                        if let b = self.bones {
+                            self.spriteLines = SpriteData.renderSprite(species: b.species, eye: b.eye, hat: b.hat)
+                        }
+                        self.onUpdate?()
+                        // If another reload was requested while we were loading, do it now
+                        if self.needsBonesReload {
+                            self.needsBonesReload = false
+                            self.loadBones()
+                        }
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.isLoadingBones = false
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.isLoadingBones = false
+                }
             }
-        } catch {
-            // If buddy.mjs fails, try to infer from soul
-            bones = nil
         }
     }
 
@@ -409,7 +458,13 @@ class BuddyData {
         )
         source.setEventHandler { [weak self] in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                self?.reload()
+                guard let self = self else { return }
+                // Skip reload if the write came from our own code (MoodEnergySystem, etc.)
+                if self.suppressFileWatcher {
+                    self.suppressFileWatcher = false
+                    return
+                }
+                self.reload()
             }
         }
         source.setCancelHandler {
@@ -434,8 +489,8 @@ class BuddyData {
 
             do {
                 try process.run()
-                process.waitUntilExit()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 if let result = try? JSONDecoder().decode(BuddyCardResult.self, from: data) {
                     DispatchQueue.main.async {
                         completion(result.reaction, result.statGrowth)
@@ -449,44 +504,4 @@ class BuddyData {
         }
     }
 
-    // React action via buddy.mjs
-    func react(reason: String = "turn", completion: @escaping (String?) -> Void) {
-        react(reason: reason, context: [:], completion: completion)
-    }
-
-    // Context-aware react action via buddy.mjs
-    func react(reason: String, context: [String: Any], completion: @escaping (String?) -> Void) {
-        DispatchQueue.global().async { [weak self] in
-            guard let self = self else { return }
-            let process = Process()
-            let pipe = Pipe()
-
-            var args = ["react", reason]
-            if !context.isEmpty,
-               let jsonData = try? JSONSerialization.data(withJSONObject: context),
-               let jsonStr = String(data: jsonData, encoding: .utf8) {
-                args.append(jsonStr)
-            }
-
-            let cmd = nodeArgs(script: self.buddyMjsPath, args: args)
-            process.executableURL = URL(fileURLWithPath: cmd.executable)
-            process.arguments = cmd.arguments
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let reaction = json["reaction"] as? String {
-                    DispatchQueue.main.async { completion(reaction) }
-                } else {
-                    DispatchQueue.main.async { completion(nil) }
-                }
-            } catch {
-                DispatchQueue.main.async { completion(nil) }
-            }
-        }
-    }
 }

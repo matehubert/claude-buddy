@@ -9,62 +9,78 @@ class CredentialManager {
     private let credFilePath: String
     private let keychainService = "Claude Code-credentials"
     private let refreshURL = "https://platform.claude.com/v1/oauth/token"
-    private let clientId: String?
     private let scopes = "user:profile user:inference user:sessions:claude_code user:mcp_servers"
     private let refreshBufferSeconds: TimeInterval = 5 * 60
 
     private var cachedToken: String?
     private var cachedExpiresAt: Date?
+    private var _clientId: String?
+    private var clientIdResolved = false
 
     private init() {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         credFilePath = "\(home)/.claude/.credentials.json"
-        clientId = CredentialManager.resolveClientId()
+        // Quick cache check only — no Process calls in init
+        _clientId = CredentialManager.resolveClientIdFromCache()
+        clientIdResolved = _clientId != nil
     }
 
-    /// Resolve OAuth client ID from Claude Code binary (never hardcoded).
-    private static func resolveClientId() -> String? {
+    /// Quick cache-only check (no Process, safe for main thread)
+    private static func resolveClientIdFromCache() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-
-        // 1. Check cached config
         let configPath = "\(home)/.claude/buddy-config.json"
         if let data = FileManager.default.contents(atPath: configPath),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let cachedId = json["clientId"] as? String {
             return cachedId
         }
-
-        // 2. Extract from Claude Code binary
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = ["-c", """
-            CLAUDE_PATH=$(readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null)
-            [ -n "$CLAUDE_PATH" ] && strings "$CLAUDE_PATH" | grep -o 'https://platform\\.claude\\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1
-            """]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                // Parse CLIENT_ID:"uuid" from output
-                if let range = output.range(of: #"CLIENT_ID:"([0-9a-f-]+)""#, options: .regularExpression),
-                   let idRange = output.range(of: #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#, options: .regularExpression, range: range) {
-                    let clientId = String(output[idRange])
-                    // Cache for future use
-                    let cacheJSON = ["clientId": clientId]
-                    if let cacheData = try? JSONSerialization.data(withJSONObject: cacheJSON, options: .prettyPrinted) {
-                        try? cacheData.write(to: URL(fileURLWithPath: configPath))
-                    }
-                    return clientId
-                }
-            }
-        } catch {}
-
         return nil
+    }
+
+    /// Resolve OAuth client ID — runs Process on background thread if needed
+    private func resolveClientIdIfNeeded() async -> String? {
+        if clientIdResolved { return _clientId }
+
+        // Run the slow extraction on background thread
+        let result: String? = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let home = FileManager.default.homeDirectoryForCurrentUser.path
+                let configPath = "\(home)/.claude/buddy-config.json"
+
+                let process = Process()
+                let pipe = Pipe()
+                process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                process.arguments = ["-c", """
+                    CLAUDE_PATH=$(readlink -f "$(which claude)" 2>/dev/null || readlink "$(which claude)" 2>/dev/null)
+                    [ -n "$CLAUDE_PATH" ] && strings "$CLAUDE_PATH" | grep -o 'https://platform\\.claude\\.com/oauth/code/callback",CLIENT_ID:"[0-9a-f-]*"' | head -1
+                    """]
+                process.standardOutput = pipe
+                process.standardError = FileHandle.nullDevice
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    if let output = String(data: data, encoding: .utf8) {
+                        if let range = output.range(of: #"CLIENT_ID:"([0-9a-f-]+)""#, options: .regularExpression),
+                           let idRange = output.range(of: #"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"#, options: .regularExpression, range: range) {
+                            let clientId = String(output[idRange])
+                            let cacheJSON = ["clientId": clientId]
+                            if let cacheData = try? JSONSerialization.data(withJSONObject: cacheJSON, options: .prettyPrinted) {
+                                try? cacheData.write(to: URL(fileURLWithPath: configPath))
+                            }
+                            continuation.resume(returning: clientId)
+                            return
+                        }
+                    }
+                } catch {}
+                continuation.resume(returning: nil)
+            }
+        }
+
+        _clientId = result
+        clientIdResolved = true
+        return result
     }
 
     struct OAuthData {
@@ -182,7 +198,7 @@ class CredentialManager {
 
     private func refreshToken(_ creds: OAuthData) async -> String? {
         guard let refreshToken = creds.refreshToken,
-              let clientId = clientId else { return nil }
+              let clientId = await resolveClientIdIfNeeded() else { return nil }
 
         let body: [String: String] = [
             "grant_type": "refresh_token",

@@ -250,6 +250,8 @@ class MoodEnergySystem {
 
     private func writeJSON(_ json: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else { return }
+        // Suppress BuddyData file watcher — this write is internal
+        BuddyData.shared.suppressFileWatcher = true
         try? data.write(to: URL(fileURLWithPath: soulPath))
     }
 
@@ -270,8 +272,8 @@ class MoodEnergySystem {
 
             do {
                 try process.run()
-                process.waitUntilExit()
                 let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let actual = json["actual"] as? Int, actual > 0 {
                     DispatchQueue.main.async {

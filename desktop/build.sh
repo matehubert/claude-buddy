@@ -20,6 +20,13 @@ cp "$BUILD_DIR/ClaudeBuddy" "$MACOS/ClaudeBuddy"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$SCRIPT_DIR/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns" 2>/dev/null || true
 
+# Copy 3D models if they exist
+if [ -d "$SCRIPT_DIR/Resources/Models" ]; then
+    mkdir -p "$RESOURCES/Models"
+    cp "$SCRIPT_DIR/Resources/Models/"*.usdz "$RESOURCES/Models/" 2>/dev/null || true
+    echo "    Copied 3D models to bundle"
+fi
+
 # Sign ad-hoc for local use
 codesign --force --sign - "$APP_DIR" 2>/dev/null || true
 

@@ -16,6 +16,9 @@ class Buddy3DView: SCNView, BuddyRenderer {
     private var isShiny: Bool = false
     private var shinyAction: SCNAction?
 
+    // Base position of model rootNode (set once during configure, never overwritten)
+    private var modelBasePosition: SCNVector3 = SCNVector3Zero
+
     // State
     private var idleOffset: CGFloat = 0
     private var bounceOffset: CGFloat = 0
@@ -54,8 +57,10 @@ class Buddy3DView: SCNView, BuddyRenderer {
         self.backgroundColor = .clear
         self.allowsCameraControl = false
         self.autoenablesDefaultLighting = false
-        self.antialiasingMode = .multisampling4X
+        self.antialiasingMode = .none
         self.isJitteringEnabled = false
+        self.preferredFramesPerSecond = 15
+        self.rendersContinuously = false  // Only render on changes, saves GPU memory
 
         // Force Metal rendering for proper transparency compositing
         if self.renderingAPI == .metal {
@@ -101,31 +106,38 @@ class Buddy3DView: SCNView, BuddyRenderer {
     func configure(species: String, eye: String, hat: String, shiny: Bool) {
         guard let scene = self.scene else { return }
 
-        // Remove old model
-        speciesModel?.rootNode.removeFromParentNode()
-        hatNode?.removeFromParentNode()
-
         currentSpecies = species
         currentHat = hat
         isShiny = shiny
 
-        // Build species model
-        let model = SpeciesModelBuilder.shared.build(species: species, shiny: shiny)
-        scene.rootNode.addChildNode(model.rootNode)
-        speciesModel = model
+        // Build model ASYNC to avoid blocking main thread (USDZ files are large)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let model = SpeciesModelBuilder.shared.build(species: species, shiny: shiny)
+            let hatNode: SCNNode? = hat != "none" ? HatModelBuilder.shared.build(hat: hat) : nil
 
-        // Build hat
-        if hat != "none" {
-            if let hNode = HatModelBuilder.shared.build(hat: hat) {
-                hNode.position = model.hatAttachPoint
-                scene.rootNode.addChildNode(hNode)
-                hatNode = hNode
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+
+                // Remove old model
+                self.speciesModel?.rootNode.removeFromParentNode()
+                self.hatNode = nil
+                self.accessoryNodes.removeAll()
+
+                scene.rootNode.addChildNode(model.rootNode)
+                self.speciesModel = model
+                self.modelBasePosition = model.rootNode.position
+
+                // Attach hat as child of model
+                if let hNode = hatNode {
+                    hNode.position = model.hatAttachPoint
+                    model.rootNode.addChildNode(hNode)
+                    self.hatNode = hNode
+                }
+
+                if shiny {
+                    self.startShinyAnimation()
+                }
             }
-        }
-
-        // Shiny hue-shift animation
-        if shiny {
-            startShinyAnimation()
         }
     }
 
@@ -172,13 +184,13 @@ class Buddy3DView: SCNView, BuddyRenderer {
         if collapsed {
             let squish = SCNAction.group([
                 SCNAction.scale(to: 0.3, duration: 0.3),
-                SCNAction.move(to: SCNVector3(0, 0.1, 0), duration: 0.3)
+                SCNAction.move(to: SCNVector3(modelBasePosition.x, modelBasePosition.y + 0.1, modelBasePosition.z), duration: 0.3)
             ])
             model.rootNode.runAction(squish)
         } else {
             let unsquish = SCNAction.group([
                 SCNAction.scale(to: 1.0, duration: 0.4),
-                SCNAction.move(to: SCNVector3(0, 0, 0), duration: 0.4)
+                SCNAction.move(to: modelBasePosition, duration: 0.4)
             ])
             model.rootNode.runAction(unsquish)
         }
@@ -297,7 +309,12 @@ class Buddy3DView: SCNView, BuddyRenderer {
         let emitter = SCNNode()
         emitter.position = SCNVector3(0, (speciesModel?.boundingHeight ?? 1.0) / 2, 0)
         emitter.addParticleSystem(particle)
-        scene.rootNode.addChildNode(emitter)
+        // Add to model rootNode so particles follow the model
+        if let modelRoot = speciesModel?.rootNode {
+            modelRoot.addChildNode(emitter)
+        } else {
+            scene.rootNode.addChildNode(emitter)
+        }
 
         // Auto-remove
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -307,24 +324,24 @@ class Buddy3DView: SCNView, BuddyRenderer {
 
     func setAccessory(_ accessory: AccessoryType, visible: Bool) {
         if visible {
-            guard accessoryNodes[accessory] == nil, let scene = self.scene else { return }
+            guard accessoryNodes[accessory] == nil, let model = speciesModel else { return }
             let node = HatModelBuilder.shared.buildAccessory(accessory)
-            // Position based on accessory type
+            let bh = Float(model.boundingHeight)
+            // Position relative to model rootNode (accessories are children of model)
             switch accessory {
             case .umbrella:
-                node.position = SCNVector3(0.4, (speciesModel?.boundingHeight ?? 1.0) + 0.2, 0)
+                node.position = SCNVector3(0.4, bh + 0.2, 0)
             case .sunglasses:
-                let eyeY = speciesModel?.leftEyeNode.position.y ?? 1.0
+                let eyeY = Float(model.leftEyeNode.position.y)
                 node.position = SCNVector3(0, eyeY, 0.35)
             case .scarf:
-                let hatY = Float(speciesModel?.hatAttachPoint.y ?? 1.3)
-                let bh = Float(speciesModel?.boundingHeight ?? 1.0)
+                let hatY = Float(model.hatAttachPoint.y)
                 let neckY = (hatY + bh / 2) / 2
                 node.position = SCNVector3(0, neckY - 0.1, 0)
             case .wings:
-                node.position = SCNVector3(0, (speciesModel?.boundingHeight ?? 1.0) * 0.5, -0.2)
+                node.position = SCNVector3(0, bh * 0.5, -0.2)
             }
-            scene.rootNode.addChildNode(node)
+            model.rootNode.addChildNode(node)
             accessoryNodes[accessory] = node
         } else {
             accessoryNodes[accessory]?.removeFromParentNode()
@@ -337,9 +354,9 @@ class Buddy3DView: SCNView, BuddyRenderer {
     private func updatePosition() {
         guard let model = speciesModel else { return }
         let totalOffset = CGFloat(idleOffset + bounceOffset) * 0.02  // scale from px to scene units
-        model.rootNode.position.y = totalOffset
-        let hatY = CGFloat(speciesModel?.hatAttachPoint.y ?? 1.3)
-        hatNode?.position.y = hatY + totalOffset
+        // ADD offset to base position, don't replace it
+        model.rootNode.position.y = modelBasePosition.y + totalOffset
+        // Hat is now a child of model rootNode, no need to update separately
     }
 
     private func updateEyes() {
@@ -378,12 +395,19 @@ class Buddy3DView: SCNView, BuddyRenderer {
     }
 
     // MARK: - Mouse Events
+    private var singleClickTimer: Timer?
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
+            singleClickTimer?.invalidate()
+            singleClickTimer = nil
             onDoubleClick?()
         } else {
-            onLeftClick?()
+            singleClickTimer?.invalidate()
+            singleClickTimer = Timer.scheduledTimer(withTimeInterval: NSEvent.doubleClickInterval, repeats: false) { [weak self] _ in
+                self?.singleClickTimer = nil
+                self?.onLeftClick?()
+            }
         }
     }
 

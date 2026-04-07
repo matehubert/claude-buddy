@@ -120,6 +120,15 @@ class ProductivityMonitor {
     private var gitWatcher: DispatchSourceFileSystemObject?
     private var clipboardTimer: Timer?
     private var lastClipboardCount: Int = 0
+
+    // Clipboard history
+    private(set) var clipboardHistory: [(text: String, date: Date)] = []
+    private let maxHistoryCount = 20
+    private let maxEntryLength = 2000
+    private let clipboardHistoryPath: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.claude/buddy-clipboard-history.json"
+    }()
     private var lastGitHead: String = ""
     private var gitDir: String?
 
@@ -151,12 +160,13 @@ class ProductivityMonitor {
     }
 
     func start() {
-        findGitDir()
-        startGitWatcher()
+        loadClipboardHistory()
         startClipboardMonitor()
         startActiveWindowMonitor()
-        startFileSystemWatcher()
         startHookFileWatcher()
+
+        // findGitDir runs async — git watcher and FS watcher start after it completes
+        findGitDirAsync()
     }
 
     func stop() {
@@ -229,8 +239,8 @@ class ProductivityMonitor {
 
     // MARK: - Git Monitoring
 
-    private func findGitDir() {
-        // Look for .git in common locations
+    private func findGitDirAsync() {
+        // Quick synchronous check for .git in common locations
         let candidates = [
             FileManager.default.currentDirectoryPath,
             FileManager.default.homeDirectoryForCurrentUser.path
@@ -240,28 +250,44 @@ class ProductivityMonitor {
             let gitPath = "\(dir)/.git"
             if FileManager.default.fileExists(atPath: gitPath) {
                 gitDir = gitPath
+                startGitWatcher()
+                startFileSystemWatcher()
                 return
             }
         }
 
-        // Try to find via `git rev-parse`
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "rev-parse", "--git-dir"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        // Slow fallback: git rev-parse on background thread
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["git", "rev-parse", "--git-dir"]
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !path.isEmpty {
-                gitDir = path
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !path.isEmpty {
+                    DispatchQueue.main.async {
+                        self?.gitDir = path
+                        self?.startGitWatcher()
+                        self?.startFileSystemWatcher()
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self?.startFileSystemWatcher()
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.startFileSystemWatcher()
+                }
             }
-        } catch {}
+        }
     }
 
     private func startGitWatcher() {
@@ -340,13 +366,59 @@ class ProductivityMonitor {
         guard current != lastClipboardCount else { return }
         lastClipboardCount = current
 
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Add to history (deduplicate consecutive, truncate large entries)
+        let trimmedText = text.count > maxEntryLength ? String(text.prefix(maxEntryLength)) : text
+        if clipboardHistory.first?.text != trimmedText {
+            clipboardHistory.insert((text: trimmedText, date: Date()), at: 0)
+            if clipboardHistory.count > maxHistoryCount {
+                clipboardHistory.removeLast()
+            }
+            saveClipboardHistory()
+        }
 
         if text.count > 500 {
             onClipboardEvent("large_paste")
         } else if text.contains("func ") || text.contains("class ") || text.contains("import ") ||
                   text.contains("function ") || text.contains("const ") || text.contains("def ") {
             onClipboardEvent("code_copy")
+        }
+    }
+
+    // MARK: - Clipboard History API
+
+    func copyFromHistory(at index: Int) {
+        guard index < clipboardHistory.count else { return }
+        let item = clipboardHistory[index]
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.text, forType: .string)
+        lastClipboardCount = NSPasteboard.general.changeCount  // prevent re-recording
+    }
+
+    func clearClipboardHistory() {
+        clipboardHistory.removeAll()
+        saveClipboardHistory()
+    }
+
+    private func saveClipboardHistory() {
+        let items: [[String: Any]] = clipboardHistory.map { entry in
+            ["text": entry.text, "date": entry.date.timeIntervalSince1970]
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: items) {
+            try? data.write(to: URL(fileURLWithPath: clipboardHistoryPath))
+        }
+    }
+
+    private func loadClipboardHistory() {
+        guard let data = FileManager.default.contents(atPath: clipboardHistoryPath),
+              let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+
+        clipboardHistory = items.compactMap { item in
+            guard let text = item["text"] as? String,
+                  let ts = item["date"] as? Double else { return nil }
+            return (text: text, date: Date(timeIntervalSince1970: ts))
         }
     }
 
@@ -481,7 +553,8 @@ class ProductivityMonitor {
         )
 
         let paths = [dir] as CFArray
-        let flags: FSEventStreamCreateFlags = UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
+        // Directory-level events only (no kFSEventStreamCreateFlagFileEvents) — saves significant kernel memory
+        let flags: FSEventStreamCreateFlags = UInt32(kFSEventStreamCreateFlagUseCFTypes)
 
         guard let stream = FSEventStreamCreate(
             nil,
@@ -507,7 +580,7 @@ class ProductivityMonitor {
             &context,
             paths,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            2.0,  // 2 second latency for batching
+            5.0,  // 5 second latency for batching — reduces kernel memory
             flags
         ) else { return }
 

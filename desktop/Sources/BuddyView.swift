@@ -113,9 +113,9 @@ class BuddyView: NSView, BuddyRenderer {
     // MARK: - Shiny Animation
 
     private func startShinyAnimation() {
-        shinyTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) { [weak self] _ in
+        shinyTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 10.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            self.shinyHue += 0.005
+            self.shinyHue += 0.01
             if self.shinyHue > 1.0 { self.shinyHue -= 1.0 }
             self.needsDisplay = true
         }
@@ -284,12 +284,21 @@ class BuddyView: NSView, BuddyRenderer {
     var onLeftClick: (() -> Void)?
     var onRightClick: ((NSEvent) -> Void)?
     var onDoubleClick: (() -> Void)?
+    private var singleClickTimer: Timer?
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
+            // Cancel pending single-click so petBuddy doesn't fire
+            singleClickTimer?.invalidate()
+            singleClickTimer = nil
             onDoubleClick?()
         } else {
-            onLeftClick?()
+            // Delay single-click to allow double-click detection
+            singleClickTimer?.invalidate()
+            singleClickTimer = Timer.scheduledTimer(withTimeInterval: NSEvent.doubleClickInterval, repeats: false) { [weak self] _ in
+                self?.singleClickTimer = nil
+                self?.onLeftClick?()
+            }
         }
     }
 

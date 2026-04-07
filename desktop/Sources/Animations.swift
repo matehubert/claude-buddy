@@ -210,13 +210,13 @@ class AnimationController {
             renderer?.setFacingLeft(facingLeft)
         }
 
-        let speed: CGFloat = 2.5
+        let speed: CGFloat = 8.0
         let stepX = (dx / distance) * speed
         let stepY = (dy / distance) * speed
         let totalSteps = Int(distance / speed)
         var step = 0
 
-        walkTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] timer in
+        walkTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
             guard let self = self, let panel = self.buddyPanel else {
                 timer.invalidate()
                 return
@@ -294,9 +294,11 @@ class AnimationController {
     // MARK: - Idle Bob Animation
 
     private func startIdleBob() {
-        idleTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self = self, let r = self.renderer else { return }
-            self.idlePhase += 0.03
+            // Pause bob during sleep to save CPU/memory
+            guard self.currentBehavior != .sleeping else { return }
+            self.idlePhase += 0.25
             let offset = sin(self.idlePhase) * 1.5
             r.setIdleOffset(CGFloat(offset))
         }
