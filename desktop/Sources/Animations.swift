@@ -73,7 +73,7 @@ class AnimationController {
     // MARK: - Behavior State Machine
 
     private func scheduleBehaviorChange() {
-        let interval = TimeInterval.random(in: 15...45)
+        let interval = TimeInterval.random(in: 30...90)
         behaviorTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             self?.pickNextBehavior()
         }
@@ -134,26 +134,30 @@ class AnimationController {
         let old = currentBehavior
         currentBehavior = behavior
 
-        if old == .wandering {
-            walkTimer?.invalidate()
-            walkTimer = nil
-        }
+        // Always cancel walk timer when leaving any state
+        walkTimer?.invalidate()
+        walkTimer = nil
 
         onBehaviorChange?(behavior)
 
         switch behavior {
         case .idle:
             renderer?.setSleeping(false)
+            renderer?.setRiggedAnimState(.idle)
         case .wandering:
             renderer?.setSleeping(false)
+            renderer?.setRiggedAnimState(.walking)
             startWandering()
         case .sleeping:
             renderer?.setSleeping(true)
+            renderer?.setRiggedAnimState(.idle)
         case .exploring:
             renderer?.setSleeping(false)
+            renderer?.setRiggedAnimState(.walking)
             doExplore()
         case .sitting:
             renderer?.setSleeping(false)
+            renderer?.setRiggedAnimState(.idle)
         }
 
         scheduleBehaviorChange()
@@ -468,8 +472,14 @@ class AnimationController {
 
     // MARK: - Speech Bubble
 
+    private var lastReactionTime: Date = .distantPast
+
     func showReaction(_ text: String) {
         guard let bubble = speechBubble else { return }
+        // Debounce: max 1 reaction per 8 seconds to prevent spam
+        let now = Date()
+        guard now.timeIntervalSince(lastReactionTime) >= 8 else { return }
+        lastReactionTime = now
         bubble.show(text: text)
     }
 }

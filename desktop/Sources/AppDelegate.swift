@@ -539,14 +539,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupBuddyPanel() {
         if use3D {
-            buddyPanel = BuddyPanel(width: 250, height: 260)
-            let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
+            buddyPanel = BuddyPanel(width: 200, height: 200)
+            let buddy3D = Buddy3DView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
             renderer = buddy3D
 
-            // Thought bubble ABOVE the buddy
-            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 200, width: 242, height: 50))
+            // Speech bubble overlapping top of 3D view (buddy is in the lower half)
+            speechBubble = SpeechBubbleView(frame: NSRect(x: 4, y: 160, width: 192, height: 38))
 
-            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 260))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
             contentView.wantsLayer = true
             contentView.layer?.isOpaque = false
             contentView.layer?.backgroundColor = CGColor.clear

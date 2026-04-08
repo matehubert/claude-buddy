@@ -55,7 +55,12 @@ protocol BuddyRenderer: AnyObject {
     func setTimeOfDay(_ time: TimeOfDay)
     func triggerParticleEffect(_ effect: ParticleEffectType)
     func setAccessory(_ accessory: AccessoryType, visible: Bool)
+
+    // Rigged skeletal animation (no-op if not rigged)
+    func setRiggedAnimState(_ state: RiggedAnimationType)
 }
+
+enum RiggedAnimationType { case idle, walking, running }
 
 // Default no-op implementations for optional 3D features
 extension BuddyRenderer {
@@ -63,4 +68,5 @@ extension BuddyRenderer {
     func setTimeOfDay(_ time: TimeOfDay) {}
     func triggerParticleEffect(_ effect: ParticleEffectType) {}
     func setAccessory(_ accessory: AccessoryType, visible: Bool) {}
+    func setRiggedAnimState(_ state: RiggedAnimationType) {}
 }

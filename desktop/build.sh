@@ -24,7 +24,14 @@ cp "$SCRIPT_DIR/Resources/AppIcon.icns" "$RESOURCES/AppIcon.icns" 2>/dev/null ||
 if [ -d "$SCRIPT_DIR/Resources/Models" ]; then
     mkdir -p "$RESOURCES/Models"
     cp "$SCRIPT_DIR/Resources/Models/"*.usdz "$RESOURCES/Models/" 2>/dev/null || true
-    echo "    Copied 3D models to bundle"
+    # Copy rigged models with animations
+    if [ -d "$SCRIPT_DIR/Resources/Models/rigged" ]; then
+        mkdir -p "$RESOURCES/Models/rigged"
+        cp "$SCRIPT_DIR/Resources/Models/rigged/"*.usdz "$RESOURCES/Models/rigged/" 2>/dev/null || true
+        echo "    Copied 3D models + rigged animations to bundle"
+    else
+        echo "    Copied 3D models to bundle"
+    fi
 fi
 
 # Sign ad-hoc for local use

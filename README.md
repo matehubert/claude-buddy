@@ -1,6 +1,6 @@
 # Claude Buddy
 
-A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Your buddy is a deterministically generated tamagotchi that lives in your terminal **and on your desktop as a 3D SceneKit companion**, reacts to your coding activity, and keeps you company while you code.
+A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Your buddy is a deterministically generated tamagotchi that lives in your terminal **and on your desktop as a rigged 3D companion with skeletal animations**, reacts to your coding activity, and keeps you company while you code.
 
 ## Example
 
@@ -23,40 +23,39 @@ A virtual terminal pet companion for [Claude Code](https://docs.anthropic.com/en
 ## Features
 
 ### Core
-- **18 species** with unique ASCII sprites, 3D models, and personalities
+- **18 species** with unique ASCII sprites, rigged 3D models, and personalities
 - **5 rarity tiers**: Common (60%), Uncommon (25%), Rare (10%), Epic (4%), Legendary (1%)
 - **Deterministic**: Same user always gets the same buddy (FNV-1a + Mulberry32 PRNG)
-- **Static reactions**: Context-aware reactions for coding events (commits, sessions, tests, builds) using localized string pools
 - **6 eye styles**, **8 hat types** (rarity-gated), **1% shiny chance**
 - **5 stats**: DEBUGGING, PATIENCE, CHAOS, WISDOM, SNARK (0-100)
 
 ### Desktop App
-- **3D SceneKit rendering** — each species built from SCN primitives (sphere, capsule, cone, cylinder, torus) with PBR materials, orthographic camera, transparent window
+- **Rigged 3D models** — all 18 species have Meshy AI auto-rigged USDZ models with skeleton, walking, and running animations driven by the behavior state machine
 - **2D/3D toggle** — switch between ASCII sprite and SceneKit 3D rendering on-the-fly via menu
-- **Mood & Energy system** — mood degrades with inactivity (happy → content → bored → sad), energy 0-100 with decay; affects behavior weights and facial expressions
-- **Environment awareness** — time of day detection (morning/afternoon/evening/night) with lighting shifts, dark mode support, live weather via wttr.in (rain → umbrella accessory, sunny → sunglasses)
-- **Pomodoro timer** — 25/5/15 minute cycles with countdown bubble, buddy behavior adapts (less wandering during work, more during breaks)
+- **Skeletal animations** — walking animation plays during wandering/exploring, running during fast movement; lazy-loaded on first use to keep startup fast
+- **Fallback procedural models** — SCN primitive models (sphere, capsule, cone, cylinder, torus) used when rigged USDZ is unavailable
+- **Mood & Energy system** — mood degrades with inactivity (happy → content → bored → sad), energy 0-100 with decay; affects behavior weights
+- **Behavior state machine** — idle, wandering, exploring, sitting, sleeping states with mood-weighted transitions every 30-90 seconds
+- **Environment awareness** — time of day (morning/afternoon/evening/night) with lighting shifts, dark mode support, live weather via wttr.in (rain → umbrella, sunny → sunglasses)
+- **Pomodoro timer** — 25/5/15 minute cycles with countdown bubble, behavior adapts (less wandering during work)
 - **Mini-games** — Click Catch, Hide & Seek, Trivia via right-click menu
-- **Productivity monitoring** — git HEAD watcher, clipboard monitoring, active window tracking, FSEvents file system watcher, Claude Code hook integration (session/test/build/write events via buddy-hook.mjs)
+- **Productivity monitoring** — git HEAD watcher, clipboard monitoring, active window tracking, FSEvents file system watcher, Claude Code hook integration (session/test/build/write events)
 - **Stat growth** — stats grow from real coding activity: git commits → DEBUGGING, pomodoro → PATIENCE, branch switches → CHAOS, writing code → WISDOM, petting → SNARK; daily cap of +5/stat
 - **Achievements** — Pet Lover, Pet Master, Good Caretaker, Fun Times, Week Streak, Monthly Devotion
 - **Streak tracking** — consecutive daily interaction counter
-- **Particle effects** — hearts (pet), confetti (achievements), species-specific (water ripple for duck, cat stars, ghost flame)
-- **Accessories** — umbrella, sunglasses, scarf, wings (with flap animation)
-- **3D hats** — crown, top hat, propeller (spinning), halo (glowing), wizard, beanie, tiny duck
-- **Shiny variants** — metallic PBR + hue-shifting emission animation
-- **Species-specific tricks** — double-click: duck quacks + wing flap, cat jumps + stars, snail hides in shell, ghost goes transparent
+- **Particle effects** — hearts (pet), confetti (achievements), species-specific (water ripple, cat stars, ghost flame)
+- **Species-specific tricks** — double-click triggers species trick: duck wing flap, cat jump, snail shell hide, ghost transparency
 - **Mouse interaction** — proximity tracking (buddy faces mouse), hover (eye widen), fast mouse away (scared reaction), drag shake detection
-- **Clipboard history** — tracks recent clipboard entries, click to re-copy from history popover
+- **Clipboard history** — tracks recent clipboard entries (max 20, 2KB/entry), click to re-copy
 - **Photo mode** — snapshot 3D view to PNG (3D mode only)
 - **Localization** — auto-detects system language (English/Hungarian), all UI strings and reactions localized
 - **Menu bar integration** — species emoji + API usage percentage, click for usage popover, right-click for full context menu
 - **Usage monitoring** — Claude Code API usage with 5-minute cache
-- **Species brand colors** — each species has a unique accent color (duck gold, dragon red, octopus purple, etc.)
+- **Species brand colors** — each species has a unique accent color
 - **Global hotkey** — Ctrl+Shift+B toggles buddy visibility from anywhere
-- **Staged startup** — 4-phase initialization prevents UI freezes (UI → input → monitors → network)
-- **Dark mode support** — all UI elements (chat bubbles, popovers) adapt to system appearance
-- **RAM optimized** — lazy popover init, FSEvents directory-level batching, reduced animation timers, clipboard size limits
+- **Dark mode support** — all UI elements adapt to system appearance
+- **Stability** — keyed SCNActions prevent animation piling, reaction debounce (max 1 per 8s), staged 4-phase startup, file watcher suppression, debounced data loading, lazy popover init
+- **RAM optimized** — FSEvents directory-level batching, reduced animation timers, clipboard size limits, SceneKit renders on-demand only
 
 ## Installation
 
@@ -135,8 +134,6 @@ Right-click the buddy or the menu bar icon:
 
 ## Mood & Energy
 
-Your buddy has emotional state that evolves over time:
-
 | Mood | Trigger | Behavior |
 |------|---------|----------|
 | Excited | High energy + interaction | Lots of wandering and exploring |
@@ -149,8 +146,6 @@ Your buddy has emotional state that evolves over time:
 **Energy** (0-100): -1 every 10 minutes idle, +5 pet, +15 feed, +10 play. Low energy (<20) forces sad mood.
 
 ## Stat Growth
-
-Stats grow from real coding activity, making each buddy unique to how you work.
 
 | Activity | Stat | Amount |
 |----------|------|--------|
@@ -166,29 +161,22 @@ Stats grow from real coding activity, making each buddy unique to how you work.
 
 Daily cap: +5 per stat per day (resets at midnight).
 
-## Mini-Games
+## 3D Models & Rigging
 
-| Game | How to Play | Scoring |
-|------|-------------|---------|
-| **Click Catch** | Wait for "GO!" then click fast | Points based on reaction time |
-| **Hide & Seek** | Buddy teleports — find and click | Bonus for speed |
-| **Trivia** | Programming trivia, 3 answer buttons | 3 questions per round |
+All 18 species have rigged 3D models generated via [Meshy AI](https://meshy.ai):
 
-## Environment Awareness
+1. **Text-to-3D** — species models generated with `meshy-6` AI model
+2. **Auto-rig** — Meshy API adds humanoid skeleton (24 bones: Hips, Spine, LeftUpLeg, LeftLeg, LeftFoot, etc.)
+3. **Animations** — walking and running animations generated per species
+4. **USDZ conversion** — GLB models converted to USDZ via Blender for SceneKit compatibility
+5. **Z-up → Y-up** — orientation corrected with pivot node rotation
 
-| Feature | How It Works |
-|---------|-------------|
-| Time of day | Detected every 5 min; affects lighting and behavior |
-| Dark mode | Listens to system appearance changes |
-| Weather | Fetches wttr.in every 30 min; rain → umbrella, sunny → sunglasses |
-| Active window | Categorizes apps as coding/browser/other |
-| File system | FSEvents directory-level watcher with intensity detection |
-| Claude Code hooks | PostToolUse/SessionStart/Stop events via buddy-hook.mjs |
-| Screen edge | Boundary detection with bounce physics |
+The behavior state machine drives animations:
+- **Idle / Sitting / Sleeping** → static pose
+- **Wandering / Exploring** → walking animation
+- Animations are lazy-loaded on first use (each USDZ is 15-40MB)
 
 ## Species Gallery
-
-Your buddy is one of 18 species, each with a unique personality:
 
 ```
   DUCK             CAT              DRAGON           GHOST
@@ -223,29 +211,6 @@ Your buddy is one of 18 species, each with a unique personality:
    |____|       |    |
 ```
 
-### Personalities
-
-| Species | Personality |
-|---------|-------------|
-| Duck | Cheerful quacker who celebrates wins with honks |
-| Goose | Agent of chaos who thrives on merge conflicts |
-| Blob | Formless, chill companion who absorbs stress |
-| Cat | Aloof code reviewer who secretly bats at syntax errors |
-| Dragon | Fierce guardian of clean code |
-| Octopus | Multitasking genius with tentacle-loads of advice |
-| Owl | Nocturnal sage who asks insightful questions |
-| Penguin | Tuxedo-wearing professional with dignified concern |
-| Turtle | Patient mentor who favors slow, steady refactoring |
-| Snail | Zen minimalist who leaves thoughtful observations |
-| Ghost | Spectral presence who haunts dead code |
-| Axolotl | Regenerative optimist who believes every build can be healed |
-| Capybara | The most relaxed companion — nothing fazes them |
-| Cactus | Prickly but lovable, offers sharp feedback |
-| Robot | Logical companion who occasionally glitches endearingly |
-| Rabbit | Hyperactive buddy who speed-reads diffs |
-| Mushroom | Wry fungal sage who speaks in meandering tangents |
-| Chonk | Absolute unit with maximum gravitational presence |
-
 ## Rarity System
 
 | Tier | Probability | Stars | Stat Floor | Hats Available |
@@ -256,31 +221,11 @@ Your buddy is one of 18 species, each with a unique personality:
 | Epic | 4% | ★★★★ | 35 | + Beanie |
 | Legendary | 1% | ★★★★★ | 50 | + Tiny Duck |
 
-Any buddy has a **1% chance** of being **Shiny** (rainbow shimmer in terminal, metallic PBR + hue-shifting in 3D).
+Any buddy has a **1% chance** of being **Shiny** (rainbow shimmer in terminal, metallic hue-shifting in 3D).
 
 ### Eyes
 
 Six eye styles randomly assigned: `·` `✦` `×` `◉` `@` `°` — customizable via menu or CLI.
-
-## How It Works
-
-```
-User types /buddy
-      │
-      ▼
-Claude loads buddy.md → runs buddy.mjs
-      │
-      ▼
-FNV-1a(accountUUID + salt) → Mulberry32 PRNG
-      │
-      ▼
-Deterministic rolls: rarity → species → eyes → hat → shiny → stats → name
-      │
-      ▼
-Claude presents ASCII art + reaction
-```
-
-Your buddy is generated deterministically from your Claude account UUID. The same account always produces the same species, rarity, stats, eyes, and hat.
 
 ## Desktop App Architecture
 
@@ -290,14 +235,14 @@ desktop/
 ├── Sources/
 │   ├── main.swift                   # App entry point
 │   ├── AppDelegate.swift            # Main coordinator, menu bar, staged startup
-│   ├── BuddyRenderProtocol.swift    # Renderer abstraction (2D/3D)
+│   ├── BuddyRenderProtocol.swift    # Renderer abstraction (2D/3D) + animation types
 │   ├── BuddyView.swift             # ASCII 2D renderer
-│   ├── Buddy3DView.swift            # SceneKit 3D renderer
-│   ├── SpeciesModelBuilder.swift    # 18 species as SCN primitives
+│   ├── Buddy3DView.swift            # SceneKit 3D renderer + rigged model loader
+│   ├── SpeciesModelBuilder.swift    # Procedural fallback models (SCN primitives)
 │   ├── HatModelBuilder.swift        # 3D hats + accessories
-│   ├── BuddyPanel.swift            # Transparent floating window + drag
-│   ├── SpeechBubbleView.swift       # Reaction text bubble
-│   ├── Animations.swift             # Behavior state machine + animations
+│   ├── BuddyPanel.swift            # Transparent floating window + drag + bounce
+│   ├── SpeechBubbleView.swift       # Reaction text bubble + trivia buttons
+│   ├── Animations.swift             # Behavior state machine, debounced reactions
 │   ├── BuddyData.swift             # Soul/bones persistence, debounced file watcher
 │   ├── BuddyLocalization.swift      # EN/HU localized strings
 │   ├── MoodEnergySystem.swift       # Mood/energy/streak/achievements
@@ -309,22 +254,28 @@ desktop/
 │   ├── UsageAPI.swift              # Claude Code usage API client
 │   ├── UsageView.swift             # Usage popover UI
 │   └── CredentialManager.swift      # OAuth credential management
-├── Resources/Models/                # USDZ 3D models (optional, per-species)
-├── build.sh                         # Build script
-└── install.sh                       # Install + LaunchAgent setup
+├── Resources/
+│   ├── Models/                      # Original USDZ models (text-to-3D)
+│   └── Models/rigged/              # Rigged USDZ models + walk/run animations (54 files)
+├── build.sh                         # Build script (copies rigged models to bundle)
+├── install.sh                       # Install + LaunchAgent setup
+├── rig_models.sh                    # Meshy auto-rig batch script
+└── generate_models.sh               # Meshy text-to-3D batch script
 ```
 
 ### Key Design Decisions
 
 - **Zero external dependencies** — SceneKit is built into macOS
 - **BuddyRenderer protocol** — abstracts over 2D ASCII and 3D SceneKit renderers
+- **Rigged USDZ models** — Meshy AI auto-rigged with skeleton + walking/running animations
+- **Lazy animation loading** — walk/run USDZ files (15-40MB each) loaded on first behavior transition, not at startup
+- **Keyed SCNActions** — all rotation/scale/move actions use `forKey:` to prevent piling up over time
+- **Reaction debounce** — max 1 speech bubble per 8 seconds
 - **Staged startup** — 4-phase init: UI (immediate) → input monitors (0.5s) → heavy systems (2s) → network (5s)
 - **File watcher suppression** — internal writes to buddy.json skip reload cascade
 - **Debounced data loading** — node process spawns coalesced, max once per second
-- **Pipe read-before-wait** — all Process pipe reads happen before waitUntilExit() to prevent deadlocks
-- **Lazy popovers** — usage and clipboard popovers created on first open, not at startup
-- **Node.js auto-detection** — searches nvm, fnm, Homebrew, system paths (LaunchAgent apps don't inherit shell PATH)
-- **Backward-compatible persistence** — new fields in buddy.json are optional
+- **Node.js auto-detection** — searches nvm, fnm, Homebrew, system paths
+- **Z-up → Y-up correction** — pivot node rotation for Blender-exported USDZ models
 
 ## File Structure
 
@@ -335,12 +286,10 @@ desktop/
 │   ├── buddy.mjs              # Core script (generation, rendering, reactions)
 │   └── buddy-hook.mjs         # Claude Code hook script (PostToolUse/Session events)
 ├── buddy.json                 # Buddy data (soul, mood, energy, stats, etc.)
-├── buddy-history.json         # Recent reaction history
 ├── buddy-events.json          # Claude Code hook events (max 50, FIFO)
 ├── buddy-daily-log.json       # Daily activity log
 ├── buddy-pomodoro.json        # Pomodoro timer state
-├── buddy-clipboard-history.json # Clipboard history (max 20 entries, 2KB/entry)
-└── buddy-config.json          # Desktop app config
+└── buddy-clipboard-history.json # Clipboard history (max 20 entries, 2KB/entry)
 
 ~/Applications/
 └── ClaudeBuddy.app            # Desktop companion (installed via install.sh)

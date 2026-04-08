@@ -19,6 +19,23 @@ class Buddy3DView: SCNView, BuddyRenderer {
     // Base position of model rootNode (set once during configure, never overwritten)
     private var modelBasePosition: SCNVector3 = SCNVector3Zero
 
+    // Rigged model support
+    private var isRiggedModel = false
+    private var riggedRootNode: SCNNode?
+    private var walkAnimation: SCNAnimationPlayer?
+    private var runAnimation: SCNAnimationPlayer?
+    private var currentAnimState: RiggedAnimState = .idle
+
+    private var riggedSpeciesName: String?
+    enum RiggedAnimState { case idle, walking, running }
+
+    // All 18 species have rigged USDZ models
+    static let riggedSpecies: Set<String> = [
+        "robot", "cat", "dragon", "duck", "mushroom", "octopus",
+        "axolotl", "blob", "cactus", "capybara", "chonk", "ghost",
+        "goose", "owl", "penguin", "rabbit", "snail", "turtle"
+    ]
+
     // State
     private var idleOffset: CGFloat = 0
     private var bounceOffset: CGFloat = 0
@@ -70,14 +87,14 @@ class Buddy3DView: SCNView, BuddyRenderer {
         // Ortho camera
         let camera = SCNCamera()
         camera.usesOrthographicProjection = true
-        camera.orthographicScale = 3.0
+        camera.orthographicScale = 1.8  // Zoomed in (was 3.0)
         camera.zNear = 0.1
         camera.zFar = 100
 
         cameraNode = SCNNode()
         cameraNode.camera = camera
-        cameraNode.position = SCNVector3(0, 0.8, 5)
-        cameraNode.look(at: SCNVector3(0, 0.6, 0))
+        cameraNode.position = SCNVector3(0, 0.6, 5)
+        cameraNode.look(at: SCNVector3(0, 0.5, 0))
         scn.rootNode.addChildNode(cameraNode)
 
         // Ambient light
@@ -110,34 +127,210 @@ class Buddy3DView: SCNView, BuddyRenderer {
         currentHat = hat
         isShiny = shiny
 
-        // Build model ASYNC to avoid blocking main thread (USDZ files are large)
+        // Check if rigged model is available
+        let useRigged = Self.riggedSpecies.contains(species)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let model = SpeciesModelBuilder.shared.build(species: species, shiny: shiny)
-            let hatNode: SCNNode? = hat != "none" ? HatModelBuilder.shared.build(hat: hat) : nil
+            if useRigged {
+                self?.loadRiggedModel(species: species, hat: hat, shiny: shiny, scene: scene)
+            } else {
+                self?.loadProceduralModel(species: species, hat: hat, shiny: shiny, scene: scene)
+            }
+        }
+    }
 
-            DispatchQueue.main.async {
-                guard let self = self else { return }
+    private func loadRiggedModel(species: String, hat: String, shiny: Bool, scene: SCNScene) {
+        guard let resourcePath = Bundle.main.resourcePath else { return }
+        let riggedPath = "\(resourcePath)/Models/rigged/\(species)_rigged.usdz"
 
-                // Remove old model
-                self.speciesModel?.rootNode.removeFromParentNode()
-                self.hatNode = nil
-                self.accessoryNodes.removeAll()
+        guard let riggedScene = try? SCNScene(url: URL(fileURLWithPath: riggedPath), options: [.checkConsistency: false]) else {
+            // Fallback to procedural
+            loadProceduralModel(species: species, hat: hat, shiny: shiny, scene: scene)
+            return
+        }
 
-                scene.rootNode.addChildNode(model.rootNode)
-                self.speciesModel = model
-                self.modelBasePosition = model.rootNode.position
+        // Extract the rigged model into a pivot node that fixes Z-up → Y-up
+        let pivot = SCNNode()
+        pivot.name = "rigged_pivot_\(species)"
+        // Blender exports Z-up; SceneKit uses Y-up → rotate -90° around X
+        pivot.eulerAngles.x = -CGFloat.pi / 2
 
-                // Attach hat as child of model
-                if let hNode = hatNode {
-                    hNode.position = model.hatAttachPoint
-                    model.rootNode.addChildNode(hNode)
-                    self.hatNode = hNode
+        let content = SCNNode()
+        content.name = "rigged_content_\(species)"
+        for child in riggedScene.rootNode.childNodes {
+            content.addChildNode(child.clone())
+        }
+        pivot.addChildNode(content)
+
+        // Outer root for positioning/scaling (no rotation — pivot handles that)
+        let root = SCNNode()
+        root.name = "rigged_\(species)"
+        root.addChildNode(pivot)
+
+        // Normalize scale after rotation: measure effective bounding box
+        let (bbMin, bbMax) = root.boundingBox
+        let modelHeight = Float(bbMax.y - bbMin.y)
+        let targetHeight: Float = 1.5
+        let scale = targetHeight / max(modelHeight, 0.01)
+        root.scale = SCNVector3(scale, scale, scale)
+        let centerX = Float(bbMin.x + bbMax.x) / 2
+        root.position = SCNVector3(-centerX * scale, -Float(bbMin.y) * scale, 0)
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Remove old model
+            self.speciesModel?.rootNode.removeFromParentNode()
+            self.riggedRootNode?.removeFromParentNode()
+            self.hatNode = nil
+            self.accessoryNodes.removeAll()
+            self.isRiggedModel = true
+            self.riggedRootNode = root
+            self.riggedSpeciesName = species
+            self.currentAnimState = .idle
+            self.walkAnimation = nil
+            self.runAnimation = nil
+
+            scene.rootNode.addChildNode(root)
+            self.modelBasePosition = root.position
+
+            // No dummy SpeciesModel for rigged — not needed
+            self.speciesModel = nil
+
+            if shiny {
+                self.startShinyAnimation()
+            }
+        }
+    }
+
+    /// Lazy-load walk/run animations on first use (each USDZ is 20-40MB)
+    private func ensureAnimationsLoaded() {
+        guard isRiggedModel, walkAnimation == nil, let species = riggedSpeciesName,
+              let resourcePath = Bundle.main.resourcePath else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let walkPath = "\(resourcePath)/Models/rigged/\(species)_walking.usdz"
+            let runPath = "\(resourcePath)/Models/rigged/\(species)_running.usdz"
+
+            var walkPlayer: SCNAnimationPlayer?
+            var runPlayer: SCNAnimationPlayer?
+
+            if let walkScene = try? SCNScene(url: URL(fileURLWithPath: walkPath), options: [.checkConsistency: false]) {
+                walkPlayer = Self.extractAnimation(from: walkScene)
+                walkPlayer?.animation.isRemovedOnCompletion = false
+                walkPlayer?.animation.repeatCount = .infinity
+                walkPlayer?.stop()
+            }
+            if let runScene = try? SCNScene(url: URL(fileURLWithPath: runPath), options: [.checkConsistency: false]) {
+                runPlayer = Self.extractAnimation(from: runScene)
+                runPlayer?.animation.isRemovedOnCompletion = false
+                runPlayer?.animation.repeatCount = .infinity
+                runPlayer?.stop()
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, let root = self.riggedRootNode else { return }
+                if let wp = walkPlayer {
+                    root.addAnimationPlayer(wp, forKey: "walk")
+                    self.walkAnimation = wp
                 }
-
-                if shiny {
-                    self.startShinyAnimation()
+                if let rp = runPlayer {
+                    root.addAnimationPlayer(rp, forKey: "run")
+                    self.runAnimation = rp
+                }
+                // Auto-play if state was already set before load finished
+                if self.currentAnimState == .walking {
+                    self.rendersContinuously = true
+                    walkPlayer?.play()
+                } else if self.currentAnimState == .running {
+                    self.rendersContinuously = true
+                    runPlayer?.play()
                 }
             }
+        }
+    }
+
+    private func loadProceduralModel(species: String, hat: String, shiny: Bool, scene: SCNScene) {
+        let model = SpeciesModelBuilder.shared.build(species: species, shiny: shiny)
+        let hatNode: SCNNode? = hat != "none" ? HatModelBuilder.shared.build(hat: hat) : nil
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.speciesModel?.rootNode.removeFromParentNode()
+            self.riggedRootNode?.removeFromParentNode()
+            self.hatNode = nil
+            self.accessoryNodes.removeAll()
+            self.isRiggedModel = false
+            self.riggedRootNode = nil
+            self.walkAnimation = nil
+            self.runAnimation = nil
+
+            scene.rootNode.addChildNode(model.rootNode)
+            self.speciesModel = model
+            self.modelBasePosition = model.rootNode.position
+
+            if let hNode = hatNode {
+                hNode.position = model.hatAttachPoint
+                model.rootNode.addChildNode(hNode)
+                self.hatNode = hNode
+            }
+
+            if shiny {
+                self.startShinyAnimation()
+            }
+        }
+    }
+
+    private static func extractAnimation(from scene: SCNScene) -> SCNAnimationPlayer? {
+        // Recursively find first animation in the scene
+        func find(in node: SCNNode) -> SCNAnimationPlayer? {
+            for key in node.animationKeys {
+                if let player = node.animationPlayer(forKey: key) {
+                    return player
+                }
+            }
+            for child in node.childNodes {
+                if let found = find(in: child) { return found }
+            }
+            return nil
+        }
+        return find(in: scene.rootNode)
+    }
+
+    // MARK: - Rigged Animation Control
+
+    func setRiggedAnimState(_ state: RiggedAnimationType) {
+        guard isRiggedModel else { return }
+        let mapped: RiggedAnimState = {
+            switch state {
+            case .idle: return .idle
+            case .walking: return .walking
+            case .running: return .running
+            }
+        }()
+        guard mapped != currentAnimState else { return }
+        currentAnimState = mapped
+
+        // Lazy-load animations on first non-idle state
+        if mapped != .idle && walkAnimation == nil {
+            ensureAnimationsLoaded()
+            // Animations will play once loaded; for now just mark the state
+            return
+        }
+
+        self.rendersContinuously = (mapped != .idle)
+
+        switch mapped {
+        case .idle:
+            walkAnimation?.stop(withBlendOutDuration: 0.3)
+            runAnimation?.stop(withBlendOutDuration: 0.3)
+        case .walking:
+            runAnimation?.stop(withBlendOutDuration: 0.3)
+            walkAnimation?.play()
+        case .running:
+            walkAnimation?.stop(withBlendOutDuration: 0.3)
+            runAnimation?.play()
         }
     }
 
@@ -159,40 +352,50 @@ class Buddy3DView: SCNView, BuddyRenderer {
     func setFacingLeft(_ left: Bool) {
         guard left != facingLeftState else { return }
         facingLeftState = left
+        let node = isRiggedModel ? riggedRootNode : speciesModel?.rootNode
+        guard let node = node else { return }
+        // Cancel any existing rotation before starting new one
+        node.removeAction(forKey: "facing")
         let targetY: Float = left ? Float.pi : 0
         let action = SCNAction.rotateTo(x: 0, y: CGFloat(targetY), z: 0, duration: 0.3)
         action.timingMode = .easeInEaseOut
-        speciesModel?.rootNode.runAction(action)
+        node.runAction(action, forKey: "facing")
     }
 
     func setSleeping(_ sleeping: Bool) {
         isSleepingState = sleeping
         updateEyes()
+        let node = isRiggedModel ? riggedRootNode : speciesModel?.rootNode
+        guard let node = node else { return }
+        node.removeAction(forKey: "sleep")
         if sleeping {
-            // Lean and close eyes
-            let lean = SCNAction.rotateTo(x: 0.1, y: CGFloat(speciesModel?.rootNode.eulerAngles.y ?? 0), z: 0.05, duration: 0.5)
-            speciesModel?.rootNode.runAction(lean)
+            let currentY = node.eulerAngles.y
+            let lean = SCNAction.rotateTo(x: 0.1, y: CGFloat(currentY), z: 0.05, duration: 0.5)
+            node.runAction(lean, forKey: "sleep")
         } else {
-            let upright = SCNAction.rotateTo(x: 0, y: CGFloat(speciesModel?.rootNode.eulerAngles.y ?? 0), z: 0, duration: 0.3)
-            speciesModel?.rootNode.runAction(upright)
+            let currentY = node.eulerAngles.y
+            let upright = SCNAction.rotateTo(x: 0, y: CGFloat(currentY), z: 0, duration: 0.3)
+            node.runAction(upright, forKey: "sleep")
         }
     }
 
     func setCollapsed(_ collapsed: Bool) {
         isCollapsedState = collapsed
-        guard let model = speciesModel else { return }
+        let node = isRiggedModel ? riggedRootNode : speciesModel?.rootNode
+        guard let node = node else { return }
+        node.removeAction(forKey: "collapse")
         if collapsed {
             let squish = SCNAction.group([
                 SCNAction.scale(to: 0.3, duration: 0.3),
                 SCNAction.move(to: SCNVector3(modelBasePosition.x, modelBasePosition.y + 0.1, modelBasePosition.z), duration: 0.3)
             ])
-            model.rootNode.runAction(squish)
+            node.runAction(squish, forKey: "collapse")
         } else {
             let unsquish = SCNAction.group([
                 SCNAction.scale(to: 1.0, duration: 0.4),
                 SCNAction.move(to: modelBasePosition, duration: 0.4)
             ])
-            model.rootNode.runAction(unsquish)
+            node.runAction(unsquish, forKey: "collapse")
         }
     }
 
@@ -310,7 +513,9 @@ class Buddy3DView: SCNView, BuddyRenderer {
         emitter.position = SCNVector3(0, (speciesModel?.boundingHeight ?? 1.0) / 2, 0)
         emitter.addParticleSystem(particle)
         // Add to model rootNode so particles follow the model
-        if let modelRoot = speciesModel?.rootNode {
+        if isRiggedModel, let root = riggedRootNode {
+            root.addChildNode(emitter)
+        } else if let modelRoot = speciesModel?.rootNode {
             modelRoot.addChildNode(emitter)
         } else {
             scene.rootNode.addChildNode(emitter)
@@ -352,11 +557,12 @@ class Buddy3DView: SCNView, BuddyRenderer {
     // MARK: - Private Helpers
 
     private func updatePosition() {
-        guard let model = speciesModel else { return }
-        let totalOffset = CGFloat(idleOffset + bounceOffset) * 0.02  // scale from px to scene units
-        // ADD offset to base position, don't replace it
-        model.rootNode.position.y = modelBasePosition.y + totalOffset
-        // Hat is now a child of model rootNode, no need to update separately
+        let totalOffset = CGFloat(idleOffset + bounceOffset) * 0.02
+        if isRiggedModel, let root = riggedRootNode {
+            root.position.y = modelBasePosition.y + totalOffset
+        } else if let model = speciesModel {
+            model.rootNode.position.y = modelBasePosition.y + totalOffset
+        }
     }
 
     private func updateEyes() {
@@ -376,9 +582,14 @@ class Buddy3DView: SCNView, BuddyRenderer {
     }
 
     private func startShinyAnimation() {
-        guard let model = speciesModel else { return }
+        let targetNode: SCNNode?
+        if isRiggedModel {
+            targetNode = riggedRootNode
+        } else {
+            targetNode = speciesModel?.rootNode
+        }
+        guard let root = targetNode else { return }
 
-        // Hue-shifting emission on all child geometry
         func applyShiny(to node: SCNNode) {
             if let geo = node.geometry, let mat = geo.firstMaterial {
                 let hueShift = SCNAction.customAction(duration: 10.0) { node, elapsed in
@@ -387,11 +598,9 @@ class Buddy3DView: SCNView, BuddyRenderer {
                 }
                 node.runAction(SCNAction.repeatForever(hueShift))
             }
-            for child in node.childNodes {
-                applyShiny(to: child)
-            }
+            for child in node.childNodes { applyShiny(to: child) }
         }
-        applyShiny(to: model.rootNode)
+        applyShiny(to: root)
     }
 
     // MARK: - Mouse Events
